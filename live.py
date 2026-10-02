@@ -3,7 +3,7 @@
 Examples:
     python live.py                                   # live a few heartbeats
     python live.py --heartbeats 20
-    python live.py --forever --pause 30              # keep living until Ctrl+C
+    python live.py --forever                         # keep living until Ctrl+C (it rests to keep the PC cool)
     python live.py --ask "Can a machine be curious, or only act as if it were?"
     python live.py --feed-file my_notes.txt --title "My notes on boredom"
     python live.py --status                          # look inside its mind
@@ -130,7 +130,8 @@ def main() -> int:
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--heartbeats", type=int, default=None, help="How many acts of inquiry to live now")
     parser.add_argument("--forever", action="store_true", help="Keep living until Ctrl+C")
-    parser.add_argument("--pause", type=float, default=0.0, help="Seconds to rest between heartbeats")
+    parser.add_argument("--pause", type=float, default=None, help="Seconds to breathe between heartbeats (organism.body.breath_seconds)")
+    parser.add_argument("--no-rest", action="store_true", help="Turn off rests and the temperature/battery guards (for short experiments only)")
     parser.add_argument("--ask", action="append", default=[], help="Give the organism a question (repeatable)")
     parser.add_argument("--feed", default=None, help="Share an observation as text")
     parser.add_argument("--feed-file", default=None, help="Share an observation from a text/markdown file")
@@ -148,12 +149,17 @@ def main() -> int:
         config.llm.model = args.model
     if args.seed is not None:
         config.organism.random_seed = args.seed
+    if args.pause is not None:
+        config.organism.body.breath_seconds = args.pause
+    if args.no_rest:
+        config.organism.body.enabled = False
 
     if args.new_life:
         archived = CuriosityOrganism.archive(config)
         console.print(f"Previous life archived to {archived}." if archived else "There was no previous life to archive.")
 
     organism = CuriosityOrganism(config)
+    organism.body.log = lambda message: console.print(f"[blue]{message}[/blue]")
     if organism.newborn:
         console.print(f"[green]{organism.state.name} is born[/green] with {len(organism.state.questions)} questions.")
 
@@ -180,6 +186,7 @@ def main() -> int:
         return 0
     if not check_ollama(config):
         return 1
+    console.print(f"[dim]{organism.body.describe()}[/dim]")
 
     try:
         if args.reflect:
@@ -191,7 +198,6 @@ def main() -> int:
             organism.live(
                 args.heartbeats,
                 forever=args.forever,
-                pause_seconds=args.pause,
                 on_heartbeat=lambda ep: print_heartbeat(organism, ep),
             )
     except KeyboardInterrupt:

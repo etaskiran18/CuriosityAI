@@ -140,6 +140,34 @@ curiosity**. That theory is shown to the Wonder voice at every heartbeat. What t
 believe about curiosity therefore shapes how it wonders, and its measured experience of inquiry
 shapes how it allocates curiosity.
 
+## Taking care of the computer it lives in
+
+A local model keeps the GPU busy, and a laptop that thinks for days gets hot. So the organism also
+regulates its **body**, the computer (`curiosity_ai/organism/body.py`, settings in `organism.body`):
+
+| Protection | Default | How |
+|---|---|---|
+| Breath | 10 s after every heartbeat | time-based, works everywhere |
+| Work and rest rhythm | 5 min rest after every 20 min of thinking | time-based, works everywhere |
+| Temperature guard | stop at 80 °C, continue at 65 °C | reads the NVIDIA GPU with `nvidia-smi` (installed with the NVIDIA driver) before calls to the model, at most every 15 s |
+| Power guard | think only while plugged in | Windows power status, Linux `/sys/class/power_supply`, macOS `pmset` |
+
+When it starts, the console says which protections are active and shows the current GPU temperature,
+or says that the temperature cannot be read on this machine. Every rest is written in the diary, for
+example *"I rested 2.5 minutes, to let the computer cool down: GPU 82°C -> 64°C."* If a sensor cannot
+be read, that guard does not block, and the time-based rhythm still protects the machine.
+
+Notes:
+
+* One call to the model cannot be stopped halfway, so the GPU can go slightly above the limit for the
+  length of one call before the organism pauses.
+* GPUs also slow themselves down near their own maximum, in the high 80s °C. These defaults keep the
+  computer well below that. If it rests too often for your taste, raise `max_gpu_temp_c` a little or
+  shorten `work_minutes`; if your laptop runs hot, lower them.
+* Laptop tips: keep the vents free (not on a bed or a blanket), use a cooling pad for long runs, and
+  pick a cooler thermal mode in your laptop's own tool (on a Dell G15: Alienware Command Center).
+* `--no-rest` turns all of this off. Use it only for short experiments.
+
 ## What "learning" means here
 
 1. **Knowledge** (working now): beliefs with verified quotes, a question graph, answers with
@@ -158,7 +186,8 @@ shapes how it allocates curiosity.
 ```bash
 python live.py                                        # live 5 heartbeats (heartbeats_per_run)
 python live.py --heartbeats 20
-python live.py --forever --pause 30                   # keep living until Ctrl+C (the mind is saved every heartbeat)
+python live.py --forever                              # keep living until Ctrl+C (the mind is saved every heartbeat)
+python live.py --forever --pause 30                   # ...with a longer breath between heartbeats
 python live.py --ask "Can a machine be curious, or only act as if it were?"
 python live.py --feed-file my_notes.txt --title "My notes on boredom"
 python live.py --status                               # open questions with their pulls, beliefs, temperament, theory

@@ -80,4 +80,5 @@ def config(tmp_path: Path, corpus_dir: Path) -> AppConfig:
     cfg.organism.random_seed = 7
     cfg.organism.reflect_every = 0
     cfg.organism.seed_questions = [SEED]
+    cfg.organism.body.enabled = False  # no real rests in tests; see test_organism_body.py
     return cfg

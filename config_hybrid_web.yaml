@@ -223,3 +223,13 @@ organism:
     importance: 0.15            # how much the question matters (Hume)
     boredom_patience: 3         # visits without progress before boredom sets in
     exploration_temperature: 0.15
+  body:                         # take care of the computer it lives in (organism/body.py)
+    enabled: true
+    breath_seconds: 10          # short pause after every heartbeat
+    work_minutes: 20            # after this much thinking...
+    rest_minutes: 5             # ...rest this long (0 turns the rhythm off)
+    gpu_temperature_guard: true # read the NVIDIA GPU temperature with nvidia-smi
+    max_gpu_temp_c: 80          # stop thinking at this GPU temperature...
+    resume_gpu_temp_c: 65       # ...until the GPU has cooled down to this
+    check_every_seconds: 15
+    pause_on_battery: true      # laptops: think only while plugged in

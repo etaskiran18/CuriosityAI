@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class LLMConfig(BaseModel):
@@ -204,6 +204,25 @@ class TemperamentConfig(BaseModel):
     exploration_temperature: float = 0.15
 
 
+class BodyConfig(BaseModel):
+    """Taking care of the computer the organism lives in (see organism/body.py)."""
+    enabled: bool = True
+    breath_seconds: float = 10          # short pause after every heartbeat
+    work_minutes: float = 20            # after this much thinking...
+    rest_minutes: float = 5             # ...rest this long (0 turns the rhythm off)
+    gpu_temperature_guard: bool = True  # read the NVIDIA GPU temperature with nvidia-smi
+    max_gpu_temp_c: float = 80          # stop thinking at this GPU temperature...
+    resume_gpu_temp_c: float = 65       # ...until the GPU has cooled to this
+    check_every_seconds: float = 15
+    pause_on_battery: bool = True       # laptops: think only while plugged in
+
+    @model_validator(mode="after")
+    def resume_below_max(self):
+        if self.resume_gpu_temp_c >= self.max_gpu_temp_c:
+            self.resume_gpu_temp_c = self.max_gpu_temp_c - 10
+        return self
+
+
 class OrganismConfig(BaseModel):
     """v8 curiosity organism: a persistent mind whose behavior is driven by curiosity."""
     home: str = "memory/organism"
@@ -255,6 +274,7 @@ class OrganismConfig(BaseModel):
     max_tokens_text: int = 260
     max_tokens_json: int = 700
     temperament: TemperamentConfig = Field(default_factory=TemperamentConfig)
+    body: BodyConfig = Field(default_factory=BodyConfig)
 
 
 class ProjectConfig(BaseModel):

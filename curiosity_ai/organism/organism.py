@@ -24,7 +24,6 @@ from __future__ import annotations
 import random
 import re
 import shutil
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -33,6 +32,7 @@ from ..config import AppConfig
 from ..schema import _as_list, _as_str, utc_now_iso
 from ..utils import strip_front_matter, write_jsonl
 from . import prompts as P
+from .body import Body, Rest
 from .diary import Diary
 from .drive import (
     DIAGNOSES,
@@ -150,7 +150,7 @@ class Settlement:
 
 
 class CuriosityOrganism:
-    def __init__(self, config: AppConfig, llm: ChatModel | None = None, senses: Senses | None = None):
+    def __init__(self, config: AppConfig, llm: ChatModel | None = None, senses: Senses | None = None, body: Body | None = None):
         self.config = config
         self.oc = config.organism
         self.home = Path(self.oc.home)
@@ -179,6 +179,8 @@ class CuriosityOrganism:
         self.newborn = state is None
         self.state = state if state is not None else self._birth()
         self.senses = senses if senses is not None else Senses.from_config(config, self.inbox_dir)
+        self.body = body if body is not None else Body(self.oc.body)
+        self.body.on_rest = self._remember_rest
 
     # -- life and death ------------------------------------------------------
 
@@ -239,9 +241,9 @@ class CuriosityOrganism:
         heartbeats: int | None = None,
         *,
         forever: bool = False,
-        pause_seconds: float = 0.0,
         on_heartbeat: Callable[[Episode | None], None] | None = None,
     ) -> list[Episode]:
+        """Live several heartbeats, resting between them to protect the computer."""
         total = self.oc.heartbeats_per_run if heartbeats is None else heartbeats
         episodes: list[Episode] = []
         failures = 0
@@ -261,8 +263,8 @@ class CuriosityOrganism:
                     )
             else:
                 failures = 0
-            if pause_seconds and (forever or i < total):
-                time.sleep(pause_seconds)
+            if forever or i < total:
+                self.body.after_heartbeat()
         return episodes
 
     def heartbeat(self) -> Episode | None:
@@ -908,6 +910,7 @@ class CuriosityOrganism:
         return "\n".join(lines) if lines else "- Nothing relevant was found in the passages."
 
     def _json(self, system: str, user: str, schema: str, *, temperature: float, errors: list[str], step: str) -> dict[str, Any]:
+        self.body.before_thinking()
         try:
             data = self.llm.json_chat(system, user, schema, temperature=temperature, max_tokens=self.oc.max_tokens_json)
         except Exception as exc:  # a confused or absent model must not end the organism's life
@@ -918,6 +921,7 @@ class CuriosityOrganism:
         return data if isinstance(data, dict) else {}
 
     def _text(self, system: str, user: str, *, temperature: float, errors: list[str], step: str) -> str:
+        self.body.before_thinking()
         try:
             text = (self.llm.chat(system, user, temperature=temperature, max_tokens=self.oc.max_tokens_text) or "").strip()
         except Exception as exc:
@@ -926,6 +930,12 @@ class CuriosityOrganism:
             return ""
         self._trace(step, user, text)
         return text
+
+    def _remember_rest(self, rest: Rest) -> None:
+        minutes = rest.seconds / 60
+        length = f"{minutes:.1f} minutes" if minutes >= 1.5 else f"{rest.seconds:.0f} seconds"
+        why = {"rhythm": "my work and rest rhythm", "cooling": "to let the computer cool down", "battery": "until the charger was connected"}
+        self.diary.note(f"*I rested {length}, {why.get(rest.reason, rest.reason)}: {rest.detail}.*")
 
     def _trace(self, step: str, prompt: str, reply: Any) -> None:
         if self.oc.trace_llm:

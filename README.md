@@ -18,6 +18,8 @@ organism whose **behavior is driven by curiosity**:
 - Every few heartbeats it **reflects on its own way of being curious**. It diagnoses itself (healthy
   wonder, restless *curiositas*, dogmatic slumber, aporetic numbness) and adjusts its temperament.
 - Grounded episodes are exported as **training data** for a future fine-tune.
+- It **takes care of your computer**: it rests regularly, stops when the NVIDIA GPU gets hot (read
+  with `nvidia-smi`) until it has cooled down, and on a laptop thinks only while plugged in.
 
 ```bash
 pip install -r requirements.txt
@@ -25,7 +27,7 @@ ollama pull mistral:7b-instruct
 python live.py                      # live 5 heartbeats
 python live.py --status             # look inside its mind
 python live.py --ask "Can a machine be curious, or only act as if it were?"
-python live.py --forever --pause 30 # let it live until Ctrl+C
+python live.py --forever            # let it live until Ctrl+C (it rests to keep the PC cool)
 ```
 
 Then read `memory/organism/diary.md`. **[docs/ORGANISM.md](docs/ORGANISM.md)** explains the design:

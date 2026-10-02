@@ -40,6 +40,10 @@ own depth:
   corrections) for future fine-tuning.
 - **Diary** (`memory/organism/diary.md`): why each question was chosen, what was expected and found,
   the dialogue, and what changed.
+- **Body care** (`organism/body.py`, `organism.body` in config): a breath after every heartbeat, a
+  rest after every stretch of thinking, a GPU temperature guard (`nvidia-smi`; stop at 80 °C, continue
+  at 65 °C), and a battery guard for laptops. Rests are written in the diary. `--no-rest` turns it off;
+  `--pause` sets the breath.
 - **LLM trace** (`trace_llm: true`): every prompt and raw reply in `llm_trace.jsonl`, for tuning prompts.
 - `docs/ORGANISM.md`: architecture and the philosophy-to-mechanism map, with corpus line references.
 - Tests: `tests/test_organism_*.py` (a scripted fake model, so no Ollama is needed).
