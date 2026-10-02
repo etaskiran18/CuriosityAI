@@ -193,6 +193,70 @@ class PublishingConfig(BaseModel):
     webhook_url_env: str = "CURIOSITY_PUBLISH_WEBHOOK"
 
 
+class TemperamentConfig(BaseModel):
+    """Starting weights of the organism's curiosity drive (see organism/drive.py)."""
+    gap: float = 0.30
+    learning_progress: float = 0.30
+    surprise: float = 0.15
+    novelty: float = 0.10
+    importance: float = 0.15
+    boredom_patience: int = 3
+    exploration_temperature: float = 0.15
+
+
+class OrganismConfig(BaseModel):
+    """v8 curiosity organism: a persistent mind whose behavior is driven by curiosity."""
+    home: str = "memory/organism"
+    name: str = "Curiosity"
+    # lexical = BM25 over the corpus (no extra dependencies); chroma = reuse v7 vector memory
+    retrieval: str = "lexical"
+    # Compilations of excerpts would duplicate the primary texts and hide who really said what.
+    library_exclude: list[str] = Field(default_factory=lambda: ["curiosity_core_reader.md"])
+    chunk_chars: int = 1200
+    chunk_overlap_chars: int = 200
+    evidence_passages: int = 5
+    max_passages_per_source: int = 2
+    passage_chars: int = 1100
+    max_web_results: int = 2
+    web_min_relevance: float = 0.25
+    dialogue_turns: int = 3
+    heartbeats_per_run: int = 5
+    reflect_every: int = 5
+    random_seed: int | None = None
+    seed_questions: list[str] = Field(default_factory=lambda: [
+        "Plato says philosophy begins in wonder: what exactly is wonder, and is it the same thing as curiosity?",
+        "Meno asks how anyone can search for what they do not know. How does curiosity get started if we cannot recognise what we lack?",
+        "Dewey says curiosity becomes intellectual when a question is held open in one's own mind. What keeps a question alive, and what kills it?",
+        "When does curiosity turn into a vice, a restless hunger for novelty rather than a love of understanding?",
+        "Is doubt the engine of inquiry or its enemy?",
+    ])
+    newborn_confidence: float = 0.25
+    max_initial_confidence: float = 0.5
+    max_confidence_step: float = 0.25
+    # You cannot be more confident than your evidence allows:
+    # ceiling = base + per_support * (verified confirmations gathered for the question)
+    evidence_ceiling_base: float = 0.5
+    evidence_ceiling_per_support: float = 0.1
+    settle_confidence: float = 0.8
+    settle_max_error: float = 0.2
+    max_open_questions: int = 40
+    max_new_questions_per_heartbeat: int = 3
+    dedupe_similarity: float = 0.55
+    lp_window: int = 4
+    lp_prior: float = 0.6
+    surprise_decay: float = 0.85
+    refractory: float = 0.5
+    boredom_lp_floor: float = 0.08
+    boredom_rate: float = 0.35
+    incubation_beliefs: int = 2
+    homeostasis: bool = True
+    export_experience: bool = True
+    trace_llm: bool = False  # write every prompt and raw model reply to llm_trace.jsonl (for tuning prompts)
+    max_tokens_text: int = 260
+    max_tokens_json: int = 700
+    temperament: TemperamentConfig = Field(default_factory=TemperamentConfig)
+
+
 class ProjectConfig(BaseModel):
     name: str = "Curiosity Epistemic Loop"
     version: str = "7.0.0"
@@ -216,6 +280,7 @@ class AppConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
+    organism: OrganismConfig = Field(default_factory=OrganismConfig)
 
 
 def load_config(path: str | Path = "config.yaml") -> AppConfig:

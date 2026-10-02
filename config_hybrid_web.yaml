@@ -198,3 +198,28 @@ publishing:
   platform: local_markdown
   public_site_dir: publications/site
   webhook_url_env: CURIOSITY_PUBLISH_WEBHOOK
+
+# v8: the curiosity organism (python live.py). Its mind lives in memory/organism/.
+# See docs/ORGANISM.md for what each mechanism means philosophically.
+organism:
+  home: memory/organism
+  name: Curiosity
+  retrieval: lexical            # lexical = BM25 over data/philosophy_corpus (no extra setup); chroma = v7 vector memory
+  library_exclude: [curiosity_core_reader.md]   # compilations would hide who really said what
+  evidence_passages: 5          # passages read per heartbeat
+  dialogue_turns: 3             # Wonder -> Skeptic -> Wonder
+  heartbeats_per_run: 5
+  reflect_every: 5              # self-reflection and self-regulation rhythm
+  max_open_questions: 40
+  max_confidence_step: 0.25     # confidence can only change gradually...
+  settle_confidence: 0.8        # ...and a question settles when confident and no longer surprised
+  homeostasis: true             # let the organism adjust its own temperament
+  export_experience: true       # write grounded episodes to memory/organism/experience/ as training data
+  temperament:                  # starting weights of the curiosity drive (they should sum to 1)
+    gap: 0.30                   # information gap (Loewenstein); strongest at medium confidence
+    learning_progress: 0.30     # prefer questions where understanding is improving (Oudeyer)
+    surprise: 0.15              # violated expectations pull inquiry back (Peirce's irritation of doubt)
+    novelty: 0.10               # fresh questions, habituating with each visit (Berlyne)
+    importance: 0.15            # how much the question matters (Hume)
+    boredom_patience: 3         # visits without progress before boredom sets in
+    exploration_temperature: 0.15

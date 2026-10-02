@@ -1,3 +1,43 @@
+# Curiosity AI
+
+A local-first research system that tries to make an AI **curious**, not only able to talk about curiosity.
+
+## v8: the Curiosity Organism
+
+v1 to v7 ask a language model to write about curiosity and then grade the writing. v8 adds an
+organism whose **behavior is driven by curiosity**:
+
+- It keeps a persistent **mind**: open questions, beliefs with evidence, and a temperament.
+- A **curiosity drive** chooses what to think about next: the information gap, learning progress,
+  surprise, novelty, importance, and boredom.
+- It **predicts before it reads**, so the classic texts can surprise it. Surprise and contradiction
+  give birth to new questions.
+- An **inner dialogue** between Wonder and Skeptic argues over every finding.
+- **Only quotes that really appear in the source count as evidence**, and confidence can never rise
+  above what the evidence allows.
+- Every few heartbeats it **reflects on its own way of being curious**. It diagnoses itself (healthy
+  wonder, restless *curiositas*, dogmatic slumber, aporetic numbness) and adjusts its temperament.
+- Grounded episodes are exported as **training data** for a future fine-tune.
+
+```bash
+pip install -r requirements.txt
+ollama pull mistral:7b-instruct
+python live.py                      # live 5 heartbeats
+python live.py --status             # look inside its mind
+python live.py --ask "Can a machine be curious, or only act as if it were?"
+python live.py --forever --pause 30 # let it live until Ctrl+C
+```
+
+Then read `memory/organism/diary.md`. **[docs/ORGANISM.md](docs/ORGANISM.md)** explains the design:
+every mechanism and the philosophical idea it comes from (Plato, Meno's paradox, Peirce, Dewey,
+James, Kant, Augustine, Heidegger, and the psychology of curiosity).
+
+Run the tests with `python -m pytest`. They need no Ollama.
+
+The v7 pipeline below (`run.py`) is unchanged.
+
+---
+
 # Curiosity AI v6 — Aggressive Depth Philosophical Loop
 
 This is a local-first closed-loop philosophical AI system designed for **autonomous curiosity-driven inquiry**, not normal ask-answer chat.

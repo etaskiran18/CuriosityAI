@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from curiosity_ai.organism import CuriosityOrganism, OrganismError
+from curiosity_ai.organism.organism import Check, Comparison
+
+from .conftest import SEED
+from .organism_fakes import ScriptedLLM
+
+
+def test_birth_creates_seed_questions_and_a_diary(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    assert org.newborn
+    assert [q.text for q in org.state.questions.values()] == [SEED]
+    assert (org.home / "mind.json").exists()
+    assert "Diary of Curiosity" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_a_heartbeat_learns_only_from_verified_quotes(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    ep = org.heartbeat()
+
+    assert ep.question_id == "Q1"
+    statuses = {c["expectation"]: c["status"] for c in ep.checks}
+    assert statuses == {1: "confirmed", 2: "not_addressed", 3: "unverified"}
+    assert ep.rejected_quotes == 2  # the invented contradiction and the invented "unexpected" finding
+    assert len(ep.unexpected) == 1
+    assert ep.prediction_error == pytest.approx(0.5 / 3.5)
+    assert ep.informativeness == pytest.approx(1.5 / 3.5)
+
+    grounded = org.state.beliefs[ep.new_belief_ids[0]]
+    interpretive = org.state.beliefs[ep.new_belief_ids[1]]
+    assert grounded.evidence and grounded.confidence == pytest.approx(0.6)
+    assert grounded.evidence[0].citation.startswith("[LOCAL:")
+    assert interpretive.interpretive and interpretive.confidence == pytest.approx(0.35)
+
+
+def test_a_question_folded_inside_the_current_one_is_not_new(config):
+    llm = ScriptedLLM(settle={"answer": "a", "confidence": 0.4, "new_questions": ["Is wonder the same thing as curiosity?"]})
+    org = CuriosityOrganism(config, llm=llm)
+    ep = org.heartbeat()
+    assert ep.new_question_ids == []
+    assert len(org.state.questions) == 1
+
+
+def test_new_questions_are_born_and_restatements_are_dropped(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    ep = org.heartbeat()
+    assert len(ep.new_question_ids) == 1
+    child = org.state.questions[ep.new_question_ids[0]]
+    assert child.parent_id == "Q1"
+    assert child.trigger == "surprise"
+    assert child.inherited_surprise == pytest.approx(ep.prediction_error)
+    assert len(org.state.questions) == 2
+
+
+def test_confidence_moves_in_bounded_steps(config):
+    config.organism.evidence_ceiling_base = 1.0
+    llm = ScriptedLLM(settle={"answer": "Certain now.", "confidence": 1.0, "learned": [], "new_questions": []})
+    org = CuriosityOrganism(config, llm=llm)
+    ep = org.heartbeat()
+    assert ep.prior_confidence == pytest.approx(0.4)
+    assert ep.confidence == pytest.approx(0.4 + config.organism.max_confidence_step)
+
+
+def test_confidence_cannot_outrun_the_evidence(config):
+    llm = ScriptedLLM(settle={"answer": "Certain now.", "confidence": 1.0, "learned": [], "new_questions": []})
+    org = CuriosityOrganism(config, llm=llm)
+    ep = org.heartbeat()
+    assert org.state.questions["Q1"].visits[-1].support == 1
+    assert ep.confidence == pytest.approx(config.organism.evidence_ceiling_base + config.organism.evidence_ceiling_per_support)
+
+
+def test_certainty_cannot_grow_without_evidence(config):
+    llm = ScriptedLLM(fail_steps=("COMPARE",), settle={"answer": "Certain now.", "confidence": 0.95, "learned": [], "new_questions": []})
+    org = CuriosityOrganism(config, llm=llm)
+    ep = org.heartbeat()
+    assert ep.confidence <= ep.prior_confidence + 0.05 + 1e-9
+    assert any(e.startswith("compare:") for e in ep.errors)
+
+
+def test_contradiction_doubts_a_belief_and_reopens_what_relied_on_it(config):
+    config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
+    llm = ScriptedLLM(settle={"answer": "No.", "confidence": 0.5, "contradicts": ["B1 is contradicted by Kant", "B99"], "new_questions": []})
+    org = CuriosityOrganism(config, llm=llm)
+    belief = org.state.add_belief("Reason can answer every question that it raises.", confidence=0.6)
+    unrelated = org.state.add_belief("Soup needs salt and a bay leaf.", confidence=0.6)
+    settled = org.state.add_question("Is reason sufficient for every inquiry it begins?", status="settled", confidence=0.85, related_beliefs=[belief.id])
+
+    ep = org.heartbeat()
+
+    assert ep.doubted_belief_ids == [belief.id]
+    assert org.state.beliefs[belief.id].status == "doubted"
+    assert org.state.beliefs[belief.id].confidence == pytest.approx(0.45)
+    assert org.state.beliefs[unrelated.id].confidence == pytest.approx(0.6)
+    assert org.state.questions[settled.id].status == "open"
+    assert org.state.questions[settled.id].confidence == pytest.approx(0.7)
+
+
+def test_the_mind_survives_a_restart(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.heartbeat()
+    again = CuriosityOrganism(config, llm=ScriptedLLM())
+    assert not again.newborn
+    assert again.state.heartbeat == 1
+    assert again.state.questions.keys() == org.state.questions.keys()
+    assert again.state.questions["Q1"].visits[0].prediction_error == pytest.approx(0.5 / 3.5)
+    assert "Heartbeat 1" in (org.home / "diary.md").read_text(encoding="utf-8")
+    episodes = (org.home / "episodes.jsonl").read_text(encoding="utf-8").splitlines()
+    assert json.loads(episodes[0])["question_id"] == "Q1"
+
+
+def test_a_human_question_is_adopted_or_merged(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    same = org.ask("Plato says philosophy begins in wonder: what is wonder, and is it the same as curiosity?")
+    assert same.id == "Q1" and same.importance == pytest.approx(0.9)
+    new = org.ask("Can a machine be curious, or only act as if it were?")
+    assert new.trigger == "human" and new.id == "Q2"
+
+
+def test_shared_observations_are_noticed_and_become_part_of_the_library(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.feed("Boredom is not the absence of curiosity but its frustrated form: a restless wish for something worth attending to.", title="On boredom")
+    org.heartbeat()
+    noticed = [q for q in org.state.questions.values() if q.trigger == "observation"]
+    assert len(noticed) == 1 and noticed[0].importance >= 0.7
+    assert not org.state.unread_inbox
+    assert org.senses.library.search("boredom frustrated restless", k=1)[0].kind == "inbox"
+    assert "A human shared something" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_a_silent_model_does_not_kill_the_organism(config):
+    llm = ScriptedLLM(fail_steps=("ANTICIPATE", "COMPARE", "WONDER", "SKEPTIC", "SETTLE"))
+    org = CuriosityOrganism(config, llm=llm)
+    ep = org.heartbeat()
+    assert ep.status_after == "no-thought"
+    assert org.state.questions["Q1"].visits == []
+    with pytest.raises(OrganismError):
+        org.live(3)
+
+
+def test_a_failed_dialogue_still_leaves_a_lesson(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(fail_steps=("WONDER",)))
+    ep = org.heartbeat()
+    assert ep.dialogue == []
+    assert ep.status_after == "open"
+    assert ep.new_belief_ids
+    assert any(e.startswith("wonder:") for e in ep.errors)
+
+
+def test_dialogue_alternates_wonder_and_skeptic(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    ep = org.heartbeat()
+    assert [t["voice"] for t in ep.dialogue] == ["Wonder", "Skeptic", "Wonder"]
+    assert not ep.dialogue[0]["text"].lower().startswith("wonder:")
+
+
+def test_reflection_updates_the_self_model_and_temperament(config):
+    config.organism.reflect_every = 2
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.live(2)
+    st = org.state
+    assert "perplexity" in st.self_model.understanding_of_curiosity
+    assert st.vitals_history and st.vitals_history[-1]["heartbeat"] == 2
+    assert any(q.trigger == "reflection" for q in st.questions.values())
+    assert "Reflection after heartbeat 2" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_grounded_episodes_become_training_data(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.heartbeat()
+    sft = (org.home / "experience" / "sft.jsonl").read_text(encoding="utf-8").splitlines()
+    example = json.loads(sft[0])
+    assert "Evidence:" in example["messages"][1]["content"]
+    assert not (org.home / "experience" / "preference_pairs.jsonl").exists()
+
+
+def test_a_verified_contradiction_yields_a_preference_pair(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(contradict_for_real=True))
+    ep = org.heartbeat()
+    assert any(c["status"] == "contradicted" for c in ep.checks)
+    pair = json.loads((org.home / "experience" / "preference_pairs.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert pair["rejected"] == ep.prior_answer and pair["chosen"] == ep.answer
+
+
+def test_archive_moves_a_life_aside(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.heartbeat()
+    archived = CuriosityOrganism.archive(config)
+    assert archived is not None and (archived / "mind.json").exists()
+    assert CuriosityOrganism(config, llm=ScriptedLLM()).newborn
+
+
+def test_surprise_scoring():
+    comp = Comparison([Check(1, "confirmed", "S1", "q"), Check(2, "contradicted", "S2", "q"), Check(3)], [])
+    assert comp.scores(3) == pytest.approx((1 / 3, 2 / 3))
+    assert Comparison([Check(1, "contradicted", "S1", "q"), Check(2, "contradicted", "S1", "r")], []).scores(2) == (1.0, 1.0)
+    assert Comparison([Check(1), Check(2)], []).scores(2) == (0.0, 0.0)
+    assert Comparison([], [{"finding": "f", "source": "S1", "quote": "q"}]).scores(0) == (0.5, 0.5)
+
+
+def test_silence_and_side_remarks_are_not_much_of_a_surprise():
+    """Texts that ignore my expectations and only say unrelated things do not shock me."""
+    unrelated = [{"finding": "typhoid", "source": "S1", "quote": "q1"}, {"finding": "deduction", "source": "S1", "quote": "q2"}]
+    surprise, informativeness = Comparison([Check(i) for i in range(1, 5)], unrelated).scores(4)
+    assert surprise == pytest.approx(0.2)
+    assert informativeness == pytest.approx(0.2)
+
+
+def test_the_same_words_cannot_be_both_expected_and_unexpected(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(echo_unexpected=True))
+    ep = org.heartbeat()
+    assert ep.unexpected == []
+    assert ep.rejected_quotes == 0
+    assert ep.prediction_error == 0.0

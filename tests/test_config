@@ -1,7 +1,0 @@
-from curiosity_ai.config import load_config
-
-
-def test_load_config():
-    cfg = load_config("config.yaml")
-    assert cfg.llm.model
-    assert cfg.loop.max_iterations > 0

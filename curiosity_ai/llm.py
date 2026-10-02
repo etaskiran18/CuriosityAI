@@ -26,6 +26,7 @@ class OllamaClient:
         *,
         temperature: float | None = None,
         json_mode: bool = False,
+        max_tokens: int | None = None,
     ) -> str:
         payload: dict[str, Any] = {
             "model": self.config.model,
@@ -42,6 +43,8 @@ class OllamaClient:
         }
         if json_mode:
             payload["format"] = "json"
+        if max_tokens:
+            payload["options"]["num_predict"] = max_tokens
 
         resp = requests.post(
             f"{self.base_url}/api/chat",
@@ -59,13 +62,14 @@ class OllamaClient:
         schema_hint: str,
         *,
         temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         forced_user = (
             user
             + "\n\nReturn ONLY valid JSON. Do not include markdown. JSON schema hint:\n"
             + schema_hint
         )
-        text = self.chat(system, forced_user, temperature=temperature, json_mode=True)
+        text = self.chat(system, forced_user, temperature=temperature, json_mode=True, max_tokens=max_tokens)
         try:
             return extract_json_object(text)
         except Exception:
@@ -82,6 +86,7 @@ class OllamaClient:
                 repair_prompt,
                 temperature=0.0,
                 json_mode=True,
+                max_tokens=max_tokens,
             )
             return extract_json_object(repaired)
 
