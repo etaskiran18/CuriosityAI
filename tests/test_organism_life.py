@@ -216,3 +216,10 @@ def test_the_same_words_cannot_be_both_expected_and_unexpected(config):
     assert ep.unexpected == []
     assert ep.rejected_quotes == 0
     assert ep.prediction_error == 0.0
+
+
+def test_a_voice_cannot_speak_for_the_other():
+    from curiosity_ai.organism.organism import _strip_voice_prefix
+
+    text = "SKEPTIC: You assume doubt is good.\n\nWONDER: How can we clarify this?"
+    assert _strip_voice_prefix(text, "Skeptic") == "You assume doubt is good."

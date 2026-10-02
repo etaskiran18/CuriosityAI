@@ -403,7 +403,10 @@ class CuriosityOrganism:
             already_used = [c.quote for c in checks.values() if c.quote and c.source == label] + [u["quote"] for u in unexpected]
             if any(overlap(quote, used) >= 0.5 for used in already_used):
                 continue  # the same words cannot be both expected and unexpected
-            finding = one_line(_as_str(item.get("finding")), 300) or one_line(quote, 200)
+            finding = _as_str(item.get("finding")).strip()
+            if re.fullmatch(r"\[?S\d+\]?", finding):
+                finding = ""  # the model put the source label where the finding belongs
+            finding = one_line(finding, 300) or one_line(quote, 200)
             unexpected.append({"finding": finding, "source": label, "quote": quote})
         return Comparison(sorted(checks.values(), key=lambda c: c.expectation), unexpected, rejected)
 
@@ -1084,4 +1087,6 @@ def _clean_question(text: str) -> str:
 
 
 def _strip_voice_prefix(text: str, voice: str) -> str:
-    return re.sub(rf"^\s*\**{voice}\**\s*:\s*", "", text.strip(), flags=re.IGNORECASE)
+    """Remove a leading "SKEPTIC:" and anything the model wrote for the other voice."""
+    text = re.sub(rf"^\s*\**{voice}\**\s*:\s*", "", text.strip(), flags=re.IGNORECASE)
+    return re.split(r"\n\s*\**(?:WONDER|SKEPTIC)\**\s*:", text, maxsplit=1, flags=re.IGNORECASE)[0].strip()
