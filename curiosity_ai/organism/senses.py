@@ -32,12 +32,14 @@ class Observation:
     title: str
     author: str
     text: str
-    kind: Literal["corpus", "inbox", "web"]
+    kind: Literal["corpus", "inbox", "acquired", "web"]
     score: float = 0.0
+    note: str = ""  # what kind of source this is, when it is not a primary text
 
     @property
     def heading(self) -> str:
-        return f"{self.author}, {self.title}" if self.author else self.title
+        name = f"{self.author}, {self.title}" if self.author else self.title
+        return f"{name} ({self.note})" if self.note else name
 
 
 @dataclass
@@ -46,10 +48,15 @@ class _Chunk:
     title: str
     author: str
     text: str
-    kind: Literal["corpus", "inbox"]
+    kind: Literal["corpus", "inbox", "acquired"]
     source_key: str
     length: int = 0
     tf: Counter = field(default_factory=Counter)
+    note: str = ""
+
+
+# How acquired texts are cited and described to the model.
+_ACQUIRED = {"WIKI": "encyclopedia article", "PAPER": "paper abstract", "BOOK": "book it acquired"}
 
 
 def library_body(text: str) -> tuple[dict[str, str], str, int]:
@@ -74,11 +81,16 @@ def library_body(text: str) -> tuple[dict[str, str], str, int]:
 
 
 class LexicalLibrary:
-    """BM25 retrieval over chunked corpus files (plus the human inbox)."""
+    """BM25 retrieval over chunked text files: the corpus, the human inbox, and acquired texts.
+
+    ``corpus_dirs`` entries are folders, or (folder, kind) pairs with kind
+    "corpus", "inbox" or "acquired". A bare folder named "inbox" counts as the
+    inbox and one named "library" as acquired texts.
+    """
 
     def __init__(
         self,
-        corpus_dirs: list[Path],
+        corpus_dirs: list,
         *,
         chunk_chars: int = 1200,
         overlap_chars: int = 200,
@@ -87,7 +99,7 @@ class LexicalLibrary:
         k1: float = 1.5,
         b: float = 0.75,
     ):
-        self.corpus_dirs = [Path(d) for d in corpus_dirs]
+        self.corpus_dirs = [_with_kind(d) for d in corpus_dirs]
         self.chunker = CorpusChunker(chunk_chars, overlap_chars)
         self.extensions = tuple(e.lower() for e in extensions)
         self.exclude = {name.lower() for name in exclude}
@@ -110,14 +122,13 @@ class LexicalLibrary:
     def refresh(self) -> int:
         """Index any files that appeared since the last call. Returns new chunk count."""
         added = 0
-        for directory in self.corpus_dirs:
+        for directory, kind in self.corpus_dirs:
             if not directory.exists():
                 continue
-            kind: Literal["corpus", "inbox"] = "inbox" if directory.name == "inbox" else "corpus"
             for path in sorted(directory.rglob("*")):
                 if not path.is_file() or path.suffix.lower() not in self.extensions:
                     continue
-                if path.name.lower().startswith("readme") or path.name.lower() in self.exclude:
+                if path.name.lower().startswith("readme") or path.name.lower() in self.exclude or ".cache" in path.parts:
                     continue
                 if str(path) in self._indexed_files:
                     continue
@@ -126,11 +137,16 @@ class LexicalLibrary:
         self._built = True
         return added
 
-    def _index_file(self, path: Path, kind: Literal["corpus", "inbox"]) -> int:
+    def _index_file(self, path: Path, kind: Literal["corpus", "inbox", "acquired"]) -> int:
         raw = path.read_text(encoding="utf-8", errors="ignore")
         meta, body, line_offset = library_body(raw)
         title = meta.get("title") or path.stem.replace("_", " ").title()
         author = meta.get("author") or ("Human observer" if kind == "inbox" else "")
+        if kind == "acquired":
+            prefix = meta.get("cite_as", "LIB")
+            note = _ACQUIRED.get(prefix, "acquired text")
+        else:
+            prefix, note = ("INBOX", "shared by a human") if kind == "inbox" else ("LOCAL", "")
         added = 0
         for idx, (start, end, text) in enumerate(self.chunker.chunk(body)):
             if start > 0 and body[start - 1].isalnum():
@@ -141,7 +157,7 @@ class LexicalLibrary:
                 continue
             line_start, line_end = line_range_for_char_span(body, start, end)
             chunk = _Chunk(
-                citation=_citation(kind, author, title, idx, line_start + line_offset, line_end + line_offset),
+                citation=_citation(prefix, author, title, idx, line_start + line_offset, line_end + line_offset),
                 title=title,
                 author=author,
                 text=text,
@@ -149,6 +165,7 @@ class LexicalLibrary:
                 source_key=str(path),
                 length=len(terms),
                 tf=Counter(terms),
+                note=note,
             )
             chunk_id = len(self._chunks)
             self._chunks.append(chunk)
@@ -190,6 +207,7 @@ class LexicalLibrary:
                     text=chunk.text,
                     kind=chunk.kind,
                     score=score,
+                    note=chunk.note,
                 )
             )
             if len(chosen) >= k:
@@ -197,8 +215,24 @@ class LexicalLibrary:
         return chosen
 
 
-def _citation(kind: str, author: str, title: str, idx: int, line_start: int, line_end: int) -> str:
-    prefix = "INBOX" if kind == "inbox" else "LOCAL"
+    def titles(self) -> list[str]:
+        """'Author, Title' of every indexed text, for telling the organism what it owns."""
+        self._ensure_built()
+        seen: dict[str, None] = {}
+        order = {"acquired": 0, "inbox": 1, "corpus": 2}  # its own acquisitions first: they change most
+        for chunk in sorted(self._chunks, key=lambda c: order.get(c.kind, 3)):
+            seen.setdefault(f"{chunk.author}, {chunk.title}" if chunk.author else chunk.title, None)
+        return list(seen)
+
+
+def _with_kind(entry) -> tuple[Path, str]:
+    if isinstance(entry, tuple):
+        return Path(entry[0]), entry[1]
+    path = Path(entry)
+    return path, {"inbox": "inbox", "library": "acquired"}.get(path.name, "corpus")
+
+
+def _citation(prefix: str, author: str, title: str, idx: int, line_start: int, line_end: int) -> str:
     author_part = (author or "Unknown").replace(" ", "_")
     title_part = title.replace(" ", "_")[:32]
     return f"[{prefix}:{author_part}:{title_part}:chunk{idx}:L{line_start}-L{line_end}]"
@@ -211,13 +245,17 @@ class ChromaLibrary:
     inbox) is searched with BM25 alongside it, since v7's memory does not ingest it.
     """
 
-    def __init__(self, config: "AppConfig", inbox_dir: Path):
+    def __init__(self, config: "AppConfig", inbox_dir: Path, library_dir: Path | None = None):
         from ..memory import ChromaMemory
 
         self.memory = ChromaMemory(config)
         self.memory.ingest_corpus()
         self.exclude = {name.lower() for name in config.organism.library_exclude}
-        self.inbox = LexicalLibrary([inbox_dir], chunk_chars=config.organism.chunk_chars, overlap_chars=config.organism.chunk_overlap_chars)
+        own = [(inbox_dir, "inbox")] + ([(library_dir, "acquired")] if library_dir else [])
+        self.inbox = LexicalLibrary(own, chunk_chars=config.organism.chunk_chars, overlap_chars=config.organism.chunk_overlap_chars)
+
+    def titles(self) -> list[str]:
+        return self.inbox.titles()
 
     def refresh(self) -> int:
         return self.inbox.refresh()
@@ -271,13 +309,16 @@ class Senses:
         self.rejected_web: list[str] = []
 
     @classmethod
-    def from_config(cls, config: "AppConfig", inbox_dir: Path) -> "Senses":
+    def from_config(cls, config: "AppConfig", inbox_dir: Path, library_dir: Path | None = None) -> "Senses":
         oc = config.organism
         if oc.retrieval == "chroma":
-            library = ChromaLibrary(config, inbox_dir)
+            library = ChromaLibrary(config, inbox_dir, library_dir)
         else:
+            dirs = [(Path(config.corpus.path), "corpus"), (inbox_dir, "inbox")]
+            if library_dir is not None:
+                dirs.append((library_dir, "acquired"))
             library = LexicalLibrary(
-                [Path(config.corpus.path), inbox_dir],
+                dirs,
                 chunk_chars=oc.chunk_chars,
                 overlap_chars=oc.chunk_overlap_chars,
                 extensions=tuple(config.corpus.accepted_extensions),

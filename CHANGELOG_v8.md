@@ -59,3 +59,32 @@ own depth:
 - `tests/test_config` was renamed to `tests/test_config.py` so pytest collects it; `pytest.ini` added.
 - `.gitignore` added; committed `__pycache__` files removed from the repository.
 - `scripts/reset_memory.py` now also removes the v7 journal and theory state.
+
+## Added later in v8: a growing library, sessions and experiments
+
+- **Librarian** (`organism/librarian.py`, `--web`): when the texts address little of its expectations,
+  the organism names what it wants to read and fetches it: Wikipedia articles (CC BY-SA, with
+  attribution), whole public-domain books (Project Gutenberg's catalogue for programs, text from a
+  mirror; both an author and a title word must match), and paper abstracts (Semantic Scholar,
+  optional). Each text records its source, license, the question it was acquired for, the heartbeat
+  and the reason. It uses a contact User-Agent, a per-site interval, Retry-After, quotas, and never
+  downloads twice. Passages say what kind of source they are; citations use `[BOOK:]`, `[WIKI:]` and
+  `[PAPER:]`.
+- **Sessions** (`organism/session.py`): every run writes `sessions/<id>/report.md`, `metrics.json` and
+  `config.json`, even when stopped with Ctrl+C. `--minutes N` makes a time-limited session.
+- **Experiments**: `--policy curiosity|random|novelty`, `--home` for separate lives, `--label`,
+  `scripts/compare_sessions.py`, and `docs/RESEARCH.md` with research questions, a 1-hour protocol,
+  metric definitions and threats to validity.
+- **Corpus**: 18 more public-domain works (Peirce, Hobbes, Hume's *Treatise*, Augustine, James's
+  *Principles*, Kant's *Prolegomena*, Russell, Descartes's *Meditations*, Bacon, Pascal, Dewey's
+  *Democracy and Education*, James's *Pragmatism*, Plato's *Phaedo* and *Symposium*, Montessori,
+  Spinoza, Mill). `--add-book "author title"` adds more.
+- `--check --web` tests Wikipedia, Project Gutenberg and Semantic Scholar; `--status` shows the library.
+
+## Fixed
+
+- `scripts/download_real_corpus.py` would have downloaded duplicates of books already present under
+  other names; it now matches the Gutenberg number or the title. It decodes texts as UTF-8 (mirrors do
+  not declare a charset, so accented letters were garbled), uses a Gutenberg mirror first, and pauses
+  2 seconds between downloads.
+

@@ -13,7 +13,7 @@ _PASSAGE_RE = re.compile(r"\[(S\d+)\] [^\n]*\n(.*?)(?=\n\n\[S\d+\] |\n\n(?:For e
 
 
 def step_of(system: str) -> str:
-    match = re.search(r"\[(ANTICIPATE|COMPARE|WONDER|SKEPTIC|SETTLE|NOTICE|REFLECT)\]", system)
+    match = re.search(r"\[(ANTICIPATE|COMPARE|WONDER|SKEPTIC|SETTLE|NOTICE|REFLECT|LIBRARIAN)\]", system)
     return match.group(1) if match else "UNKNOWN"
 
 
@@ -33,11 +33,13 @@ class ScriptedLLM:
         self.echo_unexpected = echo_unexpected
         self.calls: list[str] = []
         self.prompts: dict[str, str] = {}
+        self.on_call = lambda step: None  # e.g. advance a fake clock: thinking takes time
 
     def _enter(self, system: str, user: str) -> str:
         step = step_of(system)
         self.calls.append(step)
         self.prompts[step] = user
+        self.on_call(step)
         if step in self.fail_steps:
             raise ConnectionError(f"{step.lower()} model offline")
         return step
@@ -107,6 +109,12 @@ class ScriptedLLM:
                 ],
                 "unanswerable": False,
                 "insight": "Wonder is a beginning, not an answer.",
+            }
+        if step == "LIBRARIAN":
+            return {
+                "topics": ["Curiosity"],
+                "books": [{"author": "Thomas Hobbes", "title": "Leviathan"}],
+                "papers": ["information gap theory of curiosity"],
             }
         if step == "NOTICE":
             return {"questions": [{"question": "Why does boredom feel like the opposite of curiosity rather than its absence?", "importance": 0.8}]}

@@ -223,6 +223,16 @@ organism:
     importance: 0.15            # how much the question matters (Hume)
     boredom_patience: 3         # visits without progress before boredom sets in
     exploration_temperature: 0.15
+  policy: curiosity             # how it chooses questions: curiosity | random | novelty (baselines for experiments)
+  librarian:                    # growing its own library from the internet (python live.py --web)
+    enabled: false              # --web turns this on
+    sources: [wikipedia, gutenberg, semantic_scholar]
+    hunger_informativeness: 0.34  # when the texts address this little of its expectations, it looks elsewhere
+    cooldown_heartbeats: 4      # not again for the same question within this many heartbeats
+    max_articles_per_run: 12    # Wikipedia articles per run
+    max_books_per_run: 3        # whole public-domain books per run (Project Gutenberg)
+    max_papers_per_run: 8       # paper abstracts per run (Semantic Scholar)
+    contact: https://github.com/etaskiran18/CuriosityAI  # sent to Wikipedia/Gutenberg; you may add your email
   body:                         # take care of the computer it lives in (organism/body.py)
     enabled: true
     breath_seconds: 10          # short pause after every heartbeat

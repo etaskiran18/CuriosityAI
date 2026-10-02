@@ -56,6 +56,7 @@ class Question(BaseModel):
     visits: list[Visit] = Field(default_factory=list)
     rest_marker: int = 0
     last_visited: int | None = None
+    last_library_visit: int | None = None
     related_beliefs: list[str] = Field(default_factory=list)
 
     @property
@@ -145,6 +146,10 @@ class Episode(BaseModel):
     new_question_ids: list[str] = Field(default_factory=list)
     reawakened_question_ids: list[str] = Field(default_factory=list)
     status_after: str = "open"
+    policy: str = "curiosity"
+    acquisitions: list[str] = Field(default_factory=list)  # what it fetched from the library this heartbeat
+    library_misses: list[str] = Field(default_factory=list)  # what it looked for but did not find
+    library_owned: list[str] = Field(default_factory=list)  # what it wished for but already had
     errors: list[str] = Field(default_factory=list)
 
 

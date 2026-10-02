@@ -48,19 +48,20 @@ Line numbers point into the files in `data/philosophy_corpus/`.
 | "Wonder is the feeling of a philosopher, and philosophy begins in wonder." | Plato, *Theaetetus* 155d (`plato_theaetetus_jowett.txt` l. 3915) | The organism is born with **questions, not answers**. Questions are the unit of its life. |
 | "How will you enquire, Socrates, into that which you do not know?" | Plato, *Meno* 80d (`plato_meno_jowett.txt` l. 1529) | You can only search for what you partly know. The **information gap** is zero at confidence 0 and 1 and highest in between. A newborn question starts at 0.25 confidence, because being able to ask it already means knowing something. **Anchoring**: a gap is felt more strongly when related beliefs exist. |
 | "I neither know nor think that I know." | Plato, *Apology* 21d (`plato_apology_jowett.txt` l. 669) | Every question and belief carries an explicit confidence. `mind.json` is a map of known unknowns. |
-| "The irritation of doubt causes a struggle to attain a state of belief." | Peirce, *The Fixation of Belief* (1877) | **Predict, then compare.** Prediction error is surprise. A question **settles** when the organism is confident *and* no longer surprised; new contradicting evidence reopens it. |
+| "The irritation of doubt causes a struggle to attain a state of belief." | Peirce, *The Fixation of Belief* (1877), in *Chance, Love, and Logic* (`peirce_chance_love_logic.md` l. 1391) | **Predict, then compare.** Prediction error is surprise. A question **settles** when the organism is confident *and* no longer surprised; new contradicting evidence reopens it. |
 | "Let us not pretend to doubt in philosophy what we do not doubt in our hearts." | Peirce, *Some Consequences of Four Incapacities* (1868) | No paper doubt and no paper confirmation: confirmations and contradictions count only with a **verified quote**. |
 | Five steps of reflective thought: felt difficulty, definition, suggestion, reasoning, observation leading to "belief or disbelief". | Dewey, *How We Think* ch. 6 (`john_dewey_how_we_think.txt` l. 2376) | The heartbeat: chosen question (difficulty), expectations (definition), Wonder (suggestion), Skeptic (reasoning), compare and settle (observation and acceptance or rejection). |
 | Curiosity becomes intellectual "when the question is not discharged by being asked of another" but held "in his own mind". | Dewey ch. 3 (l. 1188) | Questions persist across runs in an open-question graph, with parents and children. |
 | The child experiments with objects "till they cease to yield new qualities". | Dewey ch. 3 (l. 1156) | **Novelty habituates**: 1 / (1 + visits). |
 | Curiosity is lost "in indifference or carelessness", "frivolous flippancy", "hard dogmatism", "routine". | Dewey ch. 3 (l. 1204) | The self-diagnoses below. |
-| The philosophic mind responds to "an inconsistency or a gap in its knowledge". | William James, *Principles of Psychology* (1890), ch. 24 | Questions are born from **contradiction** and **gaps** (and from surprise and objections). |
+| The philosophic mind responds to "an inconsistency or a gap in its knowledge". | William James, *Principles of Psychology* (1890), ch. 24 (`james_principles_psychology_vol2.md` l. 17336) | Questions are born from **contradiction** and **gaps** (and from surprise and objections). |
 | Reason "is called upon to consider questions, which it cannot decline ... but which it cannot answer". | Kant, *Critique of Pure Reason*, preface (`kant_critique_pure_reason.txt` l. 350) | A question can be marked **unanswerable** when the texts stay silent across visits, instead of looping forever. Your v7 run spent 3 of 4 iterations stuck in forced revision of one question. |
-| *Curiositas*, the "lust of the eyes"; *studiositas* as its virtuous counterpart. | Augustine, *Confessions* X.35; Aquinas, *ST* II-II q.166-167 | Diagnosis **restless curiositas**. |
+| *Curiositas*, the "lust of the eyes"; *studiositas* as its virtuous counterpart. | Augustine, *Confessions* X.35 (`augustine_confessions_pusey.md` l. 6365); Aquinas, *ST* II-II q.166-167 | Diagnosis **restless curiositas**. |
 | *Neugier*: curiosity that seeks novelty "not in order to understand" and never dwells. | Heidegger, *Being and Time* section 36 | The main reward is **learning progress, not novelty**, and **boredom** ends unproductive visits. |
 | The torpedo fish that numbs those it touches. | Plato, *Meno* 80a (l. 1501) | Diagnosis **aporetic numbness**: perplexity that paralyzes. |
-| Hume "interrupted my dogmatic slumber". | Kant, *Prolegomena* (1783) | Diagnosis **dogmatic slumber**: nothing surprises it anymore. |
-| The love of truth resembles hunting: the truth must seem important, and finding it must take effort. | Hume, *Treatise* 2.3.10 | The **importance** term. Questions from humans start with high importance. |
+| Hume "interrupted my dogmatic slumber". | Kant, *Prolegomena* (1783) (`kant_prolegomena.md` l. 365) | Diagnosis **dogmatic slumber**: nothing surprises it anymore. |
+| Curiosity is "a Lust of the mind, that by a perseverance of delight in the continuall and indefatigable generation of Knowledge, exceedeth the short vehemence of any carnall Pleasure." | Hobbes, *Leviathan* ch. 6 (`hobbes_leviathan.md` l. 1685) | Curiosity is a lasting appetite: the organism never runs out of questions, and with `--forever` it keeps living. |
+| The love of truth resembles hunting: the truth must seem important, and finding it must take effort. | Hume, *Treatise* 2.3.10 (`hume_treatise_human_nature.md` l. 15322, l. 15426) | The **importance** term. Questions from humans start with high importance. |
 | Information-gap theory; curiosity peaks at intermediate confidence. | Loewenstein (1994); Kang et al. (2009) | `information_gap(c) = 4c(1-c)` |
 | Intrinsic motivation as learning progress / compression progress. | Oudeyer, Kaplan & Hafner (2007); Schmidhuber (2010) | `learning_progress()`: drop in prediction error plus change of belief. |
 | The "noisy TV": a curious agent trapped by unpredictable noise. | Burda et al. (2018) | Unlearnable surprise gives no learning progress, so boredom takes over. See `test_noisy_tv_loses_to_a_learnable_question`. |
@@ -168,6 +169,54 @@ Notes:
   pick a cooler thermal mode in your laptop's own tool (on a Dell G15: Alienware Command Center).
 * `--no-rest` turns all of this off. Use it only for short experiments.
 
+## Growing its own library
+
+A curious reader whose books fall silent goes to the library. With `--web` (or
+`organism.librarian.enabled: true`) the organism does the same
+(`curiosity_ai/organism/librarian.py`):
+
+1. **Hunger.** After a heartbeat in which the texts addressed only a small part of its expectations
+   (informativeness at or below `hunger_informativeness`, 0.34 by default), it decides to look elsewhere.
+   It goes at most once every 4 heartbeats for the same question.
+2. **A reading wish.** The model names what it wants: up to 2 encyclopedia topics, 1 classic book
+   (author and title), and 1 search phrase for papers. It is told which texts it already owns.
+3. **Acquisition.**
+   * **Wikipedia**: the exact article first, then search results ranked by how well their titles fit.
+     Disambiguation pages and reference sections are dropped. Stored with CC BY-SA attribution.
+   * **Project Gutenberg**: Gutenberg's own catalogue file for programs, searched locally. A book is
+     taken only when both an author and a title word match, so a vague wish such as "curiosity"
+     cannot bring in "The City Curious". The text comes from a mirror, as Gutenberg asks of programs.
+   * **Semantic Scholar**: paper abstracts, optional. Without a free API key in
+     `SEMANTIC_SCHOLAR_API_KEY` it is often busy, and is then skipped quietly.
+4. **Provenance.** Every acquired text goes into `memory/organism/library/` with front matter giving
+   its source, license, the question it was acquired for, the heartbeat, and the reason. It is
+   indexed at once. The model sees what kind of source a passage comes from (book, encyclopedia
+   article, paper abstract, or shared by a human), and citations show it: `[BOOK:...]`, `[WIKI:...]`,
+   `[PAPER:...]`.
+
+**Politeness.** It sends a User-Agent with contact details (`librarian.contact`, as Wikimedia and
+Gutenberg ask), waits at least one second between requests to the same site, follows `Retry-After`
+when a site says it is busy (and waits at least five seconds), rests a busy site for a while, and
+keeps quotas per run (12 articles, 3 books, 8 abstracts by default). Nothing is downloaded twice.
+
+You can also add books yourself: `python live.py --add-book "Hobbes Leviathan"` downloads the best
+match into `data/philosophy_corpus/`. `scripts/download_real_corpus.py` downloads every work in
+`data/real_corpus_manifest.json`.
+
+## Sessions, reports and experiments
+
+Every run that lets it think is a **session**. When the session ends (after `--minutes`, after
+`--heartbeats`, or with Ctrl+C), it writes `memory/organism/sessions/<id>/`:
+
+* `report.md`: a summary, its theory of curiosity before and after, grounded beliefs with citations,
+  doubted beliefs, the questions it gave birth to, library visits, and a table of every heartbeat;
+* `metrics.json`: the numbers (definitions in [RESEARCH.md](RESEARCH.md));
+* `config.json`: the exact settings, for reproducibility.
+
+For experiments, `--policy random` and `--policy novelty` replace the curiosity drive with baselines,
+`--home` gives each condition its own life, and `scripts/compare_sessions.py` puts sessions side by
+side. [RESEARCH.md](RESEARCH.md) has research questions and a 1-hour protocol.
+
 ## What "learning" means here
 
 1. **Knowledge** (working now): beliefs with verified quotes, a question graph, answers with
@@ -185,6 +234,7 @@ Notes:
 
 ```bash
 python live.py                                        # live 5 heartbeats (heartbeats_per_run)
+python live.py --minutes 60 --web                     # a 1-hour session that can grow its library; ends with a report
 python live.py --heartbeats 20
 python live.py --forever                              # keep living until Ctrl+C (the mind is saved every heartbeat)
 python live.py --forever --pause 30                   # ...with a longer breath between heartbeats
@@ -194,6 +244,9 @@ python live.py --status                               # open questions with thei
 python live.py --reflect                              # reflect now
 python live.py --model qwen2.5:7b                     # try another Ollama model
 python live.py --new-life                             # archive this life and start a new one
+python live.py --add-book "Augustine Confessions"     # download a public-domain book into the corpus
+python live.py --check --web                          # check the computer and the online sources
+python live.py --home memory/exp/random --policy random --minutes 60   # a baseline condition for an experiment
 ```
 
 Files, in `memory/organism/`:
@@ -205,6 +258,8 @@ Files, in `memory/organism/`:
 | `episodes.jsonl` | One record per heartbeat |
 | `inbox/` | What humans have shared (it also becomes part of the library) |
 | `experience/` | Training data from grounded episodes |
+| `library/` | Texts it acquired itself (`encyclopedia/`, `books/`, `papers/`) and `acquisitions.jsonl`, its reading history |
+| `sessions/` | One folder per session: `report.md`, `metrics.json`, `config.json` |
 
 Run one process per organism home at a time.
 
@@ -233,6 +288,8 @@ Run one process per organism home at a time.
 | When stuck | forced revision of the same topic | boredom, dormancy, incubation, "unanswerable" |
 | LLM calls per step | about 16, with long prompts | 6, with short prompts |
 | Self-improvement | none | homeostasis of temperament; its own theory of curiosity |
+| Literature | fixed corpus; web snippets per iteration | a library that grows when its books fall silent, with provenance |
+| Evaluation | judge scores | session reports, metrics, baselines (`--policy`), comparison script |
 
 v7 (`run.py`) is untouched and still works.
 

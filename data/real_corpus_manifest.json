@@ -1,5 +1,5 @@
 {
-  "notes": "Public-domain primary philosophical texts for the Curiosity AI corpus. The downloader uses Project Gutenberg cache URLs and preserves Gutenberg text/license material. Verify copyright/public-domain status in your jurisdiction before redistribution.",
+  "notes": "Public-domain primary texts for the Curiosity AI corpus, chosen for curiosity, wonder, doubt and inquiry. The downloader uses a Project Gutenberg mirror (as Gutenberg asks of programs), keeps the Gutenberg text and license, and skips books already present. Verify copyright status in your jurisdiction before redistribution.",
   "works": [
     {
       "slug": "plato_republic_jowett",
@@ -235,6 +235,268 @@
         "rationality"
       ],
       "source_url": "https://www.gutenberg.org/ebooks/26659"
+    },
+    {
+      "slug": "peirce_chance_love_logic",
+      "ebook_id": "65274",
+      "title": "Chance, Love, and Logic: Philosophical Essays",
+      "author": "Charles S. Peirce",
+      "year": "1877-1893 (collected 1923)",
+      "translator": "",
+      "tradition": "American pragmatism",
+      "themes": [
+        "doubt",
+        "belief",
+        "inquiry",
+        "fixation of belief",
+        "scientific method"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/65274"
+    },
+    {
+      "slug": "hobbes_leviathan",
+      "ebook_id": "3207",
+      "title": "Leviathan",
+      "author": "Thomas Hobbes",
+      "year": "1651",
+      "translator": "",
+      "tradition": "early modern philosophy",
+      "themes": [
+        "curiosity",
+        "lust of the mind",
+        "passions",
+        "knowledge",
+        "science"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/3207"
+    },
+    {
+      "slug": "hume_treatise_human_nature",
+      "ebook_id": "4705",
+      "title": "A Treatise of Human Nature",
+      "author": "David Hume",
+      "year": "1739-1740",
+      "translator": "",
+      "tradition": "empiricism",
+      "themes": [
+        "curiosity",
+        "love of truth",
+        "passions",
+        "skepticism",
+        "custom"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/4705"
+    },
+    {
+      "slug": "augustine_confessions_pusey",
+      "ebook_id": "3296",
+      "title": "The Confessions of St. Augustine",
+      "author": "Augustine of Hippo",
+      "year": "c. 397-400",
+      "translator": "E. B. Pusey",
+      "tradition": "late antique philosophy / theology",
+      "themes": [
+        "curiositas",
+        "lust of the eyes",
+        "memory",
+        "time",
+        "self-knowledge"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/3296"
+    },
+    {
+      "slug": "james_principles_psychology_vol1",
+      "ebook_id": "57628",
+      "title": "The Principles of Psychology, Volume 1",
+      "author": "William James",
+      "year": "1890",
+      "translator": "",
+      "tradition": "psychology / pragmatism",
+      "themes": [
+        "attention",
+        "habit",
+        "stream of thought",
+        "consciousness"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/57628"
+    },
+    {
+      "slug": "james_principles_psychology_vol2",
+      "ebook_id": "57634",
+      "title": "The Principles of Psychology, Volume 2",
+      "author": "William James",
+      "year": "1890",
+      "translator": "",
+      "tradition": "psychology / pragmatism",
+      "themes": [
+        "instinct",
+        "curiosity",
+        "emotion",
+        "belief",
+        "will"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/57634"
+    },
+    {
+      "slug": "kant_prolegomena",
+      "ebook_id": "52821",
+      "title": "Kant's Prolegomena to Any Future Metaphysics",
+      "author": "Immanuel Kant",
+      "year": "1783",
+      "translator": "Paul Carus",
+      "tradition": "critical philosophy",
+      "themes": [
+        "dogmatic slumber",
+        "Hume",
+        "metaphysics",
+        "limits of reason"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/52821"
+    },
+    {
+      "slug": "russell_problems_of_philosophy",
+      "ebook_id": "5827",
+      "title": "The Problems of Philosophy",
+      "author": "Bertrand Russell",
+      "year": "1912",
+      "translator": "",
+      "tradition": "analytic philosophy",
+      "themes": [
+        "value of philosophy",
+        "wonder",
+        "uncertainty",
+        "knowledge"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/5827"
+    },
+    {
+      "slug": "descartes_meditations",
+      "ebook_id": "70091",
+      "title": "Six Metaphysical Meditations",
+      "author": "René Descartes",
+      "year": "1641",
+      "translator": "William Molyneux",
+      "tradition": "rationalism",
+      "themes": [
+        "methodic doubt",
+        "certainty",
+        "cogito",
+        "error"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/70091"
+    },
+    {
+      "slug": "bacon_novum_organum",
+      "ebook_id": "45988",
+      "title": "Novum Organum",
+      "author": "Francis Bacon",
+      "year": "1620",
+      "translator": "Joseph Devey",
+      "tradition": "early modern science",
+      "themes": [
+        "idols of the mind",
+        "induction",
+        "experiment",
+        "inquiry"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/45988"
+    },
+    {
+      "slug": "pascal_pensees",
+      "ebook_id": "18269",
+      "title": "Pascal's Pensées",
+      "author": "Blaise Pascal",
+      "year": "1670",
+      "translator": "W. F. Trotter",
+      "tradition": "early modern philosophy",
+      "themes": [
+        "curiosity as vanity",
+        "diversion",
+        "reason",
+        "the infinite"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/18269"
+    },
+    {
+      "slug": "dewey_democracy_and_education",
+      "ebook_id": "852",
+      "title": "Democracy and Education",
+      "author": "John Dewey",
+      "year": "1916",
+      "translator": "",
+      "tradition": "American pragmatism / philosophy of education",
+      "themes": [
+        "thinking",
+        "experience",
+        "curiosity",
+        "education",
+        "method"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/852"
+    },
+    {
+      "slug": "james_pragmatism",
+      "ebook_id": "5116",
+      "title": "Pragmatism: A New Name for Some Old Ways of Thinking",
+      "author": "William James",
+      "year": "1907",
+      "translator": "",
+      "tradition": "American pragmatism",
+      "themes": [
+        "truth",
+        "inquiry",
+        "meaning",
+        "belief"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/5116"
+    },
+    {
+      "slug": "plato_phaedo_jowett",
+      "ebook_id": "1658",
+      "title": "Phaedo",
+      "author": "Plato",
+      "year": "c. 360 BCE",
+      "translator": "Benjamin Jowett",
+      "tradition": "ancient Greek philosophy",
+      "themes": [
+        "recollection",
+        "soul",
+        "inquiry",
+        "philosophy as practice"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/1658"
+    },
+    {
+      "slug": "plato_symposium_jowett",
+      "ebook_id": "1600",
+      "title": "Symposium",
+      "author": "Plato",
+      "year": "c. 385 BCE",
+      "translator": "Benjamin Jowett",
+      "tradition": "ancient Greek philosophy",
+      "themes": [
+        "love of wisdom",
+        "eros",
+        "ascent",
+        "desire to know"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/1600"
+    },
+    {
+      "slug": "montessori_method",
+      "ebook_id": "39863",
+      "title": "The Montessori Method",
+      "author": "Maria Montessori",
+      "year": "1912",
+      "translator": "Anne E. George",
+      "tradition": "philosophy of education",
+      "themes": [
+        "child curiosity",
+        "spontaneous activity",
+        "attention",
+        "learning"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/39863"
     }
   ]
 }

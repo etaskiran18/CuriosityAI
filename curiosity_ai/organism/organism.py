@@ -26,7 +26,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from ..config import AppConfig
 from ..schema import _as_list, _as_str, utc_now_iso
@@ -34,6 +34,7 @@ from ..utils import strip_front_matter, write_jsonl
 from . import prompts as P
 from .body import Body, Rest
 from .diary import Diary
+from .librarian import Librarian, ReadingWish
 from .drive import (
     DIAGNOSES,
     DriveReading,
@@ -50,6 +51,9 @@ from .drive import (
 from .senses import Observation, Senses, write_inbox_item
 from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Temperament, Visit, load_mind, save_mind
 from .textutil import clip, jaccard, one_line, overlap, token_set, verify_quote
+
+if TYPE_CHECKING:
+    from .session import SessionReport
 
 
 class ChatModel(Protocol):
@@ -150,13 +154,21 @@ class Settlement:
 
 
 class CuriosityOrganism:
-    def __init__(self, config: AppConfig, llm: ChatModel | None = None, senses: Senses | None = None, body: Body | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        llm: ChatModel | None = None,
+        senses: Senses | None = None,
+        body: Body | None = None,
+        librarian: Librarian | None = None,
+    ):
         self.config = config
         self.oc = config.organism
         self.home = Path(self.oc.home)
         self.home.mkdir(parents=True, exist_ok=True)
         self.mind_path = self.home / "mind.json"
         self.inbox_dir = self.home / "inbox"
+        self.library_dir = self.home / "library"
         self.episodes_path = self.home / "episodes.jsonl"
         self.experience_dir = self.home / "experience"
         if llm is None:
@@ -178,9 +190,15 @@ class CuriosityOrganism:
         state = load_mind(self.mind_path)
         self.newborn = state is None
         self.state = state if state is not None else self._birth()
-        self.senses = senses if senses is not None else Senses.from_config(config, self.inbox_dir)
+        self.senses = senses if senses is not None else Senses.from_config(config, self.inbox_dir, self.library_dir)
         self.body = body if body is not None else Body(self.oc.body)
         self.body.on_rest = self._remember_rest
+        if librarian is None and self.oc.librarian.enabled:
+            librarian = Librarian(self.oc.librarian, self.library_dir, owned_dirs=[Path(config.corpus.path)])
+        self.librarian = librarian
+        self.rest_log: list[Rest] = []
+        self.no_thought = 0
+        self.last_report: "SessionReport | None" = None
 
     # -- life and death ------------------------------------------------------
 
@@ -241,37 +259,78 @@ class CuriosityOrganism:
         heartbeats: int | None = None,
         *,
         forever: bool = False,
+        minutes: float | None = None,
         on_heartbeat: Callable[[Episode | None], None] | None = None,
     ) -> list[Episode]:
-        """Live several heartbeats, resting between them to protect the computer."""
+        """Live several heartbeats, resting between them to protect the computer.
+
+        With ``minutes`` it lives until that much time has passed (rests
+        included) and then stops after the current heartbeat.
+        """
         total = self.oc.heartbeats_per_run if heartbeats is None else heartbeats
+        deadline = self.body.now() + minutes * 60 if minutes else None
+        endless = forever or deadline is not None
         episodes: list[Episode] = []
+        durations: list[float] = []
         failures = 0
         i = 0
-        while forever or i < total:
+        while endless or i < total:
+            if deadline is not None:
+                remaining = deadline - self.body.now()
+                # Do not start a heartbeat that probably cannot finish before the time limit:
+                # ending a little early is better than running over a test someone has planned.
+                if remaining <= 0 or (durations and remaining < sum(durations) / len(durations)):
+                    break
             i += 1
+            started = self.body.now()
             episode = self.heartbeat()
+            durations.append(self.body.now() - started)
             if episode is not None:
                 episodes.append(episode)
             if on_heartbeat:
                 on_heartbeat(episode)
             if episode is not None and episode.status_after == "no-thought":
+                self.no_thought += 1
                 failures += 1
-                if failures >= 2 and not forever:
+                if failures >= 2 and not endless:
                     raise OrganismError(
                         "The language model did not answer in two heartbeats in a row: " + "; ".join(episode.errors)
                     )
                 if failures >= 2:
                     # A long life survives a model that is away for a while (a restart, the laptop
                     # waking from sleep): wait longer each time, up to 15 minutes, and try again.
-                    minutes = min(15, 2 ** (failures - 2))
-                    self.body.log(f"The language model is not answering ({'; '.join(episode.errors)}). I will try again in {minutes} min.")
-                    self.body.pause(minutes * 60)
+                    wait = min(15, 2 ** (failures - 2)) * 60
+                    if deadline is not None:
+                        wait = min(wait, max(0.0, deadline - self.body.now()))
+                    self.body.log(f"The language model is not answering ({'; '.join(episode.errors)}). I will try again in {wait / 60:.0f} min.")
+                    self.body.pause(wait)
             else:
                 failures = 0
-            if forever or i < total:
-                self.body.after_heartbeat()
+            if deadline is not None and self.body.now() >= deadline:
+                break
+            if endless or i < total:
+                self.body.after_heartbeat(None if deadline is None else deadline - self.body.now())
         return episodes
+
+    def run_session(
+        self,
+        heartbeats: int | None = None,
+        *,
+        forever: bool = False,
+        minutes: float | None = None,
+        label: str | None = None,
+        on_heartbeat: Callable[[Episode | None], None] | None = None,
+    ) -> "SessionReport":
+        """Live as a session and write its report, even if it is interrupted (Ctrl+C)."""
+        from .session import Session
+
+        session = Session(self, label=label, minutes=minutes)
+        try:
+            self.live(heartbeats, forever=forever, minutes=minutes, on_heartbeat=on_heartbeat)
+        finally:
+            self.save()
+            self.last_report = session.finish()
+        return self.last_report
 
     def heartbeat(self) -> Episode | None:
         st = self.state
@@ -295,7 +354,7 @@ class CuriosityOrganism:
             self.save()
             return None
 
-        chosen = choose(readings, st.temperament.exploration_temperature, self._rng())
+        chosen = self._choose(readings)
         q = st.questions[chosen.question_id]
         ranking = [(chosen.question_id, chosen.total)] + sorted(
             ((r.question_id, r.total) for r in readings if r.question_id != chosen.question_id),
@@ -324,6 +383,7 @@ class CuriosityOrganism:
                 trigger=q.trigger,
                 drive=chosen.as_dict(),
                 status_after="no-thought",
+                policy=self.oc.policy,
                 errors=errors,
             )
             self.diary.note(f"## Heartbeat {st.heartbeat}\n\nI tried to think about {q.id} but could not: {'; '.join(errors)}")
@@ -333,6 +393,8 @@ class CuriosityOrganism:
         episode = self._integrate(
             q, chosen, prior_answer, prior_confidence, anticipation, observations, comparison, dialogue, settlement, related, errors
         )
+        self._maybe_visit_library(q, episode, errors)
+        self._record(episode, comparison, observations)
         self.diary.heartbeat(episode, st, ranking)
         if self.oc.reflect_every > 0 and st.heartbeat % self.oc.reflect_every == 0:
             self.reflect()
@@ -625,13 +687,65 @@ class CuriosityOrganism:
             new_question_ids=born,
             reawakened_question_ids=woke,
             status_after=q.status,
+            policy=oc.policy,
             errors=errors,
         )
-        st.remember_episode(episode)
-        write_jsonl(self.episodes_path, episode.model_dump(mode="json"))
-        if oc.export_experience:
-            self._export_experience(episode, comparison, by_label)
         return episode
+
+    def _record(self, episode: Episode, comparison: Comparison, observations: list[Observation]) -> None:
+        self.state.remember_episode(episode)
+        write_jsonl(self.episodes_path, episode.model_dump(mode="json"))
+        if self.oc.export_experience:
+            self._export_experience(episode, comparison, {o.label: o for o in observations})
+
+    # -- growing the library -------------------------------------------------
+
+    def _maybe_visit_library(self, q: Question, episode: Episode, errors: list[str]) -> None:
+        """When its books say little about a question, the organism looks elsewhere."""
+        lib, cfg = self.librarian, self.oc.librarian
+        if lib is None or not episode.expectations or any(e.startswith("compare:") for e in errors):
+            return
+        if episode.informativeness > cfg.hunger_informativeness:
+            return
+        if q.last_library_visit is not None and self.state.heartbeat - q.last_library_visit < cfg.cooldown_heartbeats:
+            return
+        q.last_library_visit = self.state.heartbeat
+        wish = self._reading_wish(q, episode, errors)
+        try:
+            got = lib.acquire(
+                wish,
+                reason=f"my books said little about {q.id}: {one_line(q.text, 140)}",
+                question_id=q.id,
+                heartbeat=self.state.heartbeat,
+            )
+        except Exception as exc:  # the internet is not part of the organism; its absence is not fatal
+            errors.append(f"library: {type(exc).__name__}: {one_line(str(exc), 140)}")
+            return
+        episode.acquisitions = [a.label() for a in got]
+        episode.library_misses = list(lib.missed)
+        episode.library_owned = list(lib.owned)
+        if got:
+            self.senses.notice_new_material()
+
+    def _reading_wish(self, q: Question, episode: Episode, errors: list[str]) -> ReadingWish:
+        titles = getattr(self.senses.library, "titles", lambda: [])()
+        owned = "; ".join(titles[:60]) or "(none)"
+        user = (
+            f"Question: {q.text}\n\n"
+            f"The passages you found addressed only {episode.informativeness:.0%} of your expectations.\n\n"
+            f"Texts you already have: {owned}\n\n"
+            "Name what to look up (leave a list empty if nothing fits):\n"
+            "- topics: up to 2 encyclopedia topics, each a concept or a thinker in 1-4 words\n"
+            "- books: up to 1 classic book written before 1929, as author and title\n"
+            "- papers: up to 1 short search phrase for scientific papers"
+        )
+        data = self._json(P.LIBRARIAN, user, P.LIBRARIAN_SCHEMA, temperature=0.3, errors=errors, step="librarian")
+        topics = [t for t in _texts(data.get("topics"), ("topic", "name", "text")) if 1 <= len(t.split()) <= 6][:2]
+        books = [b for b in _book_queries(data.get("books")) if len(b.split()) >= 2][:1]
+        papers = [p for p in _texts(data.get("papers"), ("query", "phrase", "text")) if len(p.split()) >= 2][:1]
+        if not (topics or books or papers):
+            topics = [q.text]  # without a better idea, look up the question itself
+        return ReadingWish(topics, books, papers)
 
     def _update_status(self, q: Question, settlement: Settlement) -> None:
         oc = self.oc
@@ -941,7 +1055,19 @@ class CuriosityOrganism:
         self._trace(step, user, text)
         return text
 
+    def _choose(self, readings: list[DriveReading]) -> DriveReading:
+        """The policy that picks the next question. Only "curiosity" uses the drive;
+        "random" and "novelty" (least visited first) are baselines for experiments."""
+        rng = self._rng()
+        if self.oc.policy == "random":
+            return rng.choice(readings)
+        if self.oc.policy == "novelty":
+            best = max(r.novelty for r in readings)
+            return rng.choice([r for r in readings if r.novelty == best])
+        return choose(readings, self.state.temperament.exploration_temperature, rng)
+
     def _remember_rest(self, rest: Rest) -> None:
+        self.rest_log.append(rest)
         minutes = rest.seconds / 60
         length = f"{minutes:.1f} minutes" if minutes >= 1.5 else f"{rest.seconds:.0f} seconds"
         why = {"rhythm": "my work and rest rhythm", "cooling": "to let the computer cool down", "battery": "until the charger was connected"}
@@ -969,6 +1095,22 @@ def _texts(value: Any, keys: tuple[str, ...]) -> list[str]:
         text = re.sub(r"^\s*(E\d+[:.)]|\d+[.)]|[-*])\s*", "", text).strip()
         if text:
             out.append(text)
+    return out
+
+
+def _book_queries(value: Any) -> list[str]:
+    """Book wishes as 'author title' strings, whether the model wrote strings or objects."""
+    out = []
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            text = " ".join(_as_str(item.get(k)) for k in ("author", "title") if item.get(k)) or next(
+                (_as_str(v) for v in item.values() if isinstance(v, str)), ""
+            )
+        else:
+            text = _as_str(item)
+        text = re.sub(r"[\"'\u201c\u201d]", "", text).replace(",", " ").strip()
+        if text:
+            out.append(re.sub(r"\s+", " ", text))
     return out
 
 

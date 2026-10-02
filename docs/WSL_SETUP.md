@@ -99,6 +99,24 @@ python live.py --forever           # live until Ctrl+C; the mind is saved after 
 It rests by itself to keep the laptop cool (see "Taking care of the computer" in
 [ORGANISM.md](ORGANISM.md)).
 
+## 9. A 1-hour test with web search
+
+```bash
+python live.py --check --web                     # are Wikipedia and Project Gutenberg reachable?
+python live.py --minutes 60 --web --label first-hour
+```
+
+After an hour it stops by itself and writes a report to `memory/organism/sessions/<id>/report.md`
+(open it with `explorer.exe memory/organism/sessions`). Ctrl+C stops earlier and still writes the
+report. For experiments, see [RESEARCH.md](RESEARCH.md).
+
+## 10. More books
+
+```bash
+python live.py --add-book "Augustine Confessions" --add-book "Hobbes Leviathan"
+python scripts/download_real_corpus.py           # everything listed in data/real_corpus_manifest.json
+```
+
 To get new versions of the code later: `cd ~/CuriosityAI && git pull`.
 
 ## If something goes wrong

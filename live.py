@@ -13,6 +13,8 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -28,6 +30,7 @@ from curiosity_ai.config import AppConfig, load_config
 from curiosity_ai.llm import OllamaClient
 from curiosity_ai.organism import CuriosityOrganism, OrganismError
 from curiosity_ai.organism.body import SystemSensors
+from curiosity_ai.organism.librarian import Librarian, user_agent
 from curiosity_ai.organism.drive import DIAGNOSES
 from curiosity_ai.organism.state import Episode
 from curiosity_ai.organism.textutil import one_line
@@ -55,7 +58,7 @@ def _is_model(names: set[str], model: str) -> bool:
     return model in names or f"{model}:latest" in names or any(n.startswith(model + ":") for n in names)
 
 
-def run_checks(config: AppConfig) -> int:
+def run_checks(config: AppConfig, online: bool = False) -> int:
     """Check this computer's setup, one line per item, and say what to fix."""
     rows: list[tuple[str, str, str]] = []
 
@@ -115,6 +118,11 @@ def run_checks(config: AppConfig) -> int:
     except OSError as exc:
         rows.append(("FIX", "Organism home", f"cannot write to {home}: {exc}"))
 
+    if online:
+        rows += _online_rows(config)
+    else:
+        rows.append(("note", "Web library", "not checked; add --web to test Wikipedia, Project Gutenberg and Semantic Scholar"))
+
     table = Table(title="Curiosity organism: setup check")
     for col in ("", "item", "detail"):
         table.add_column(col)
@@ -128,6 +136,37 @@ def run_checks(config: AppConfig) -> int:
         return 1
     console.print("[green]Ready. Try:  python live.py --heartbeats 3[/green]")
     return 0
+
+
+def _online_rows(config: AppConfig) -> list[tuple[str, str, str]]:
+    """One quick request to each source the librarian uses."""
+    lib = config.organism.librarian
+    headers = {"User-Agent": user_agent(lib.contact)}
+    key = os.environ.get(lib.semantic_scholar_api_key_env)
+    probes = [
+        ("Wikipedia", "https://en.wikipedia.org/w/api.php",
+         {"action": "query", "list": "search", "srsearch": "curiosity", "srlimit": 1, "format": "json"}, {}, True),
+        ("Project Gutenberg", f"{lib.gutenberg_mirror.rstrip('/')}/cache/epub/1643/pg1643.txt", None, {}, True),
+        ("Semantic Scholar", "https://api.semanticscholar.org/graph/v1/paper/search",
+         {"query": "curiosity", "limit": 1, "fields": "title"}, {"x-api-key": key} if key else {}, False),
+    ]
+    rows = []
+    for name, url, params, extra, needed in probes:
+        try:
+            resp = requests.get(url, params=params, headers={**headers, **extra}, timeout=20, stream=True)
+            code = resp.status_code
+            resp.close()
+        except Exception as exc:
+            rows.append(("FIX" if needed else "note", name, f"unreachable: {one_line(str(exc), 90)}"))
+            continue
+        if code < 400:
+            rows.append(("ok", name, "reachable"))
+        elif code == 429:
+            hint = "" if name != "Semantic Scholar" else " (optional; a free API key in SEMANTIC_SCHOLAR_API_KEY raises the limit)"
+            rows.append(("note", name, f"busy right now (429 Too Many Requests); it waits and retries{hint}"))
+        else:
+            rows.append(("FIX" if needed else "note", name, f"answered HTTP {code}"))
+    return rows
 
 
 def _gpu_share(base: str, model: str) -> tuple[str, str, str]:
@@ -224,26 +263,88 @@ def print_status(organism: CuriosityOrganism) -> None:
             grounding = f"{len(b.evidence)} quote(s)" if b.evidence else "interpretation"
             btable.add_row(b.id, f"{b.confidence:.2f}", grounding, escape(one_line(b.statement, 140)))
         console.print(btable)
+    print_library(organism)
     console.print(f"Diary: {escape(str(organism.home / 'diary.md'))}   Mind: {escape(str(organism.mind_path))}")
+
+
+def print_library(organism: CuriosityOrganism) -> None:
+    """What it can read: the shared corpus, what humans shared, and what it acquired itself."""
+    config = organism.config
+    extensions = {e.lower() for e in config.corpus.accepted_extensions}
+    corpus = [f for f in Path(config.corpus.path).glob("*") if f.suffix.lower() in extensions and not f.name.lower().startswith("readme")]
+    shared = list(organism.inbox_dir.glob("*.md")) if organism.inbox_dir.exists() else []
+    acquired = {kind: len(list((organism.library_dir / kind).glob("*.md"))) for kind in ("encyclopedia", "books", "papers")}
+    console.print(
+        f"[bold]Library:[/bold] {len(corpus)} texts in the corpus, {len(shared)} shared by humans, acquired by itself: "
+        f"{acquired['encyclopedia']} encyclopedia articles, {acquired['books']} books, {acquired['papers']} paper abstracts."
+    )
+    log = organism.library_dir / "acquisitions.jsonl"
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()] if log.exists() else []
+    for row in rows[-5:]:
+        console.print(f"[dim]  heartbeat {row.get('heartbeat')}: {escape(row.get('title', ''))} ({row.get('kind')}) because {escape(row.get('reason', ''))}[/dim]")
+
+
+def add_books(config: AppConfig, queries: list[str]) -> int:
+    """Download public-domain books from Project Gutenberg into the shared corpus."""
+    corpus = Path(config.corpus.path)
+    librarian = Librarian(config.organism.librarian, Path(config.organism.home) / "library")
+    console.print("[dim]Searching Project Gutenberg's catalogue (the first time, it downloads the 6 MB catalogue)...[/dim]")
+    missing = 0
+    for query in queries:
+        acquisition, candidates = librarian.add_book(query, corpus)
+        if acquisition is not None:
+            console.print(f"[green]Added[/green] {escape(acquisition.title)} by {escape(acquisition.author)} -> {escape(acquisition.path)}")
+        elif candidates:
+            best = candidates[0]
+            console.print(f"[yellow]Not added[/yellow] '{escape(query)}': best match {escape(best.title)} by {escape(best.author)} (#{best.ebook_id}) is already in the library or could not be downloaded.")
+        else:
+            missing += 1
+            console.print(f"[red]No book found for[/red] '{escape(query)}'. Try author and title, e.g. \"Hobbes Leviathan\".")
+        if len(candidates) > 1:
+            others = "; ".join(f"{c.title} by {c.author} (#{c.ebook_id})" for c in candidates[1:4])
+            console.print(f"[dim]  other matches: {escape(others)}[/dim]")
+    console.print("[dim]New books are read at the organism's next start.[/dim]")
+    return 1 if missing else 0
+
+
+def print_session(report) -> None:
+    m = report.metrics
+    console.print(
+        Panel(
+            f"{m['heartbeats']} heartbeats in {m['minutes']:g} min (rested {m['rest_minutes']:g} min) | "
+            f"questions born {m['questions_born']} | new beliefs {m['beliefs_new']} ({m['beliefs_grounded']} grounded) | "
+            f"doubted {m['beliefs_doubted']}\n"
+            f"surprise {m['mean_surprise']:.2f} | texts addressed {m['mean_informativeness']:.0%} | "
+            f"invented quotes caught {m['quotes_rejected']} | texts acquired {m['acquisitions']}",
+            title=f"Session {escape(report.session_id)}",
+        )
+    )
+    console.print(f"Report: {escape(str(report.directory / 'report.md'))}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Live, talk to, and observe the curiosity organism.")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--heartbeats", type=int, default=None, help="How many acts of inquiry to live now")
+    parser.add_argument("--minutes", type=float, default=None, help="Live this many minutes (rests included), then stop and write the session report")
     parser.add_argument("--forever", action="store_true", help="Keep living until Ctrl+C")
+    parser.add_argument("--web", action="store_true", help="Let it grow its library from the internet: Wikipedia, Project Gutenberg books, paper abstracts")
+    parser.add_argument("--policy", choices=["curiosity", "random", "novelty"], default=None, help="How it chooses its next question; random and novelty are baselines for experiments")
+    parser.add_argument("--home", default=None, help="Folder of this organism's life (use separate folders for experiments); default memory/organism")
+    parser.add_argument("--label", default=None, help="A name added to this session's report folder")
     parser.add_argument("--pause", type=float, default=None, help="Seconds to breathe between heartbeats (organism.body.breath_seconds)")
     parser.add_argument("--no-rest", action="store_true", help="Turn off rests and the temperature/battery guards (for short experiments only)")
     parser.add_argument("--ask", action="append", default=[], help="Give the organism a question (repeatable)")
     parser.add_argument("--feed", default=None, help="Share an observation as text")
     parser.add_argument("--feed-file", default=None, help="Share an observation from a text/markdown file")
     parser.add_argument("--title", default=None, help="Title for --feed/--feed-file")
-    parser.add_argument("--status", action="store_true", help="Show the organism's mind and exit")
+    parser.add_argument("--add-book", action="append", default=[], metavar="QUERY", help='Download a public-domain book into the corpus, e.g. "Hobbes Leviathan" (repeatable)')
+    parser.add_argument("--status", action="store_true", help="Show the organism's mind and library, then exit")
     parser.add_argument("--reflect", action="store_true", help="Reflect now")
     parser.add_argument("--new-life", action="store_true", help="Archive the current life and start a new one")
     parser.add_argument("--model", default=None, help="Override llm.model (e.g. mistral:7b-instruct, qwen2.5:3b)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible choices")
-    parser.add_argument("--check", action="store_true", help="Check this computer's setup (Python, Ollama, model, GPU, power) and exit")
+    parser.add_argument("--check", action="store_true", help="Check this computer's setup (with --web, also the online sources) and exit")
     args = parser.parse_args()
 
     load_dotenv()
@@ -256,8 +357,18 @@ def main() -> int:
         config.organism.body.breath_seconds = args.pause
     if args.no_rest:
         config.organism.body.enabled = False
+    if args.home:
+        config.organism.home = args.home
+    if args.policy:
+        config.organism.policy = args.policy
+    if args.web:
+        config.organism.librarian.enabled = True
     if args.check:
-        return run_checks(config)
+        return run_checks(config, online=args.web)
+    if args.add_book:
+        added = add_books(config, args.add_book)
+        if not (args.heartbeats is not None or args.minutes or args.forever):
+            return added
 
     if args.new_life:
         archived = CuriosityOrganism.archive(config)
@@ -285,34 +396,42 @@ def main() -> int:
         return 0
 
     talked = bool(args.ask or args.feed or args.feed_file or args.new_life)
-    wants_to_live = args.forever or args.heartbeats is not None or args.reflect or not talked
+    wants_to_live = args.forever or args.minutes or args.heartbeats is not None or args.reflect or not talked
     if not wants_to_live:
         console.print("Run [bold]python live.py[/bold] to let it think about this.")
         return 0
     if not check_ollama(config):
         return 1
     console.print(f"[dim]{escape(organism.body.describe())}[/dim]")
+    if organism.librarian is not None:
+        console.print("[dim]Web library: on (Wikipedia, Project Gutenberg, Semantic Scholar) - it looks things up when its books are silent.[/dim]")
+    if args.minutes:
+        console.print(f"[dim]Living for {args.minutes:g} minutes, then it stops and writes a report. Ctrl+C stops earlier.[/dim]")
 
+    code = 0
     try:
         if args.reflect:
             organism.reflect()
             sm = organism.state.self_model
             console.print(f"[magenta]{DIAGNOSES[sm.diagnosis]['name']}[/magenta]: {escape(sm.last_reflection)}")
             console.print(f"[bold]Curiosity, as it now understands it:[/bold] {escape(sm.understanding_of_curiosity)}")
-        if args.forever or args.heartbeats is not None or not args.reflect:
-            organism.live(
+        if args.forever or args.minutes or args.heartbeats is not None or not args.reflect:
+            organism.run_session(
                 args.heartbeats,
                 forever=args.forever,
+                minutes=args.minutes,
+                label=args.label,
                 on_heartbeat=lambda ep: print_heartbeat(organism, ep),
             )
     except KeyboardInterrupt:
-        organism.save()
         console.print("\n[dim]Paused. The mind is saved; run again to continue its life.[/dim]")
     except OrganismError as exc:
         console.print(f"[red]{escape(str(exc))}[/red]")
-        return 1
+        code = 1
+    if organism.last_report is not None:
+        print_session(organism.last_report)
     console.print(f"Diary: {escape(str(organism.home / 'diary.md'))}")
-    return 0
+    return code
 
 
 if __name__ == "__main__":

@@ -223,6 +223,25 @@ class BodyConfig(BaseModel):
         return self
 
 
+class LibrarianConfig(BaseModel):
+    """Growing the library from the internet (see organism/librarian.py)."""
+    enabled: bool = False                # live.py --web turns it on
+    sources: list[str] = Field(default_factory=lambda: ["wikipedia", "gutenberg", "semantic_scholar"])
+    hunger_informativeness: float = 0.34 # a visit where the texts said this little sends it to the library
+    cooldown_heartbeats: int = 4         # do not go back for the same question too soon
+    max_articles_per_run: int = 12       # Wikipedia articles
+    max_books_per_run: int = 3           # whole books from Project Gutenberg
+    max_papers_per_run: int = 8          # paper abstracts from Semantic Scholar
+    max_book_chars: int = 2_500_000
+    catalog_max_age_days: int = 30       # refresh Project Gutenberg's catalogue after this
+    gutenberg_mirror: str = "https://aleph.pglaf.org"  # Gutenberg asks programs to use mirrors
+    timeout_seconds: float = 45
+    min_request_interval_seconds: float = 1.0
+    semantic_scholar_api_key_env: str = "SEMANTIC_SCHOLAR_API_KEY"
+    # Sent in the User-Agent, as Wikimedia and Gutenberg ask of programs. You may add your email.
+    contact: str = "https://github.com/etaskiran18/CuriosityAI"
+
+
 class OrganismConfig(BaseModel):
     """v8 curiosity organism: a persistent mind whose behavior is driven by curiosity."""
     home: str = "memory/organism"
@@ -275,6 +294,10 @@ class OrganismConfig(BaseModel):
     max_tokens_json: int = 700
     temperament: TemperamentConfig = Field(default_factory=TemperamentConfig)
     body: BodyConfig = Field(default_factory=BodyConfig)
+    librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
+    # How the next question is chosen: curiosity (the drive), random, or novelty (least visited).
+    # The last two are baselines for experiments.
+    policy: str = "curiosity"
 
 
 class ProjectConfig(BaseModel):

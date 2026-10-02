@@ -104,6 +104,12 @@ class Diary:
             nq = state.questions.get(qid)
             if nq:
                 lines.append(f"- Reawakened **{qid}**: {nq.text}")
+        if ep.acquisitions:
+            lines.append(f"- My books said little here, so I went to the library and brought back: {'; '.join(ep.acquisitions)}")
+        if ep.library_misses:
+            lines.append(f"- I looked for, but did not find: {'; '.join(ep.library_misses)}")
+        if ep.library_owned:
+            lines.append(f"- I wished for, but already had: {'; '.join(ep.library_owned)}")
         if ep.status_after != "open":
             lines.append(f"- {ep.question_id} is now **{ep.status_after}**" + (f": {q.status_reason}" if q and q.status_reason else ""))
         if ep.errors:

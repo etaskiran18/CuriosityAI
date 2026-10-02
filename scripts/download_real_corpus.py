@@ -10,6 +10,11 @@ from typing import Any
 
 import requests
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from curiosity_ai.organism.librarian import already_in  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "data" / "real_corpus_manifest.json"
 DEFAULT_OUT = ROOT / "data" / "philosophy_corpus"
@@ -20,8 +25,9 @@ def safe_text(value: Any) -> str:
 
 
 def candidate_urls(ebook_id: str) -> list[str]:
-    # Project Gutenberg serves different books with slightly different filename patterns.
+    # Project Gutenberg asks automated tools to use a mirror; the main site is the fallback.
     return [
+        f"https://aleph.pglaf.org/cache/epub/{ebook_id}/pg{ebook_id}.txt",
         f"https://www.gutenberg.org/cache/epub/{ebook_id}/pg{ebook_id}.txt",
         f"https://www.gutenberg.org/files/{ebook_id}/{ebook_id}-0.txt",
         f"https://www.gutenberg.org/files/{ebook_id}/{ebook_id}.txt",
@@ -32,14 +38,17 @@ def candidate_urls(ebook_id: str) -> list[str]:
 def fetch_text(ebook_id: str, timeout: int = 60) -> tuple[str, str]:
     errors: list[str] = []
     headers = {
-        "User-Agent": "CuriosityAIResearchBot/0.1 (local educational corpus downloader)"
+        "User-Agent": "CuriosityAI/0.8 (https://github.com/etaskiran18/CuriosityAI) corpus downloader"
     }
     for url in candidate_urls(ebook_id):
         try:
             resp = requests.get(url, headers=headers, timeout=timeout)
-            if resp.status_code == 200 and len(resp.text) > 1000:
-                return url, resp.text
-            errors.append(f"{url} -> HTTP {resp.status_code}, {len(resp.text)} chars")
+            # Gutenberg's texts are UTF-8, but mirrors do not always say so; without a
+            # charset, requests would guess Latin-1 and garble every accented letter.
+            text = resp.content.decode("utf-8", errors="replace")
+            if resp.status_code == 200 and len(text) > 1000:
+                return url, text
+            errors.append(f"{url} -> HTTP {resp.status_code}, {len(text)} chars")
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{url} -> {exc}")
     raise RuntimeError("Could not download ebook_id=" + ebook_id + "\n" + "\n".join(errors))
@@ -93,8 +102,9 @@ def download_manifest(manifest_path: Path, out_dir: Path, clear_existing: bool, 
         slug = work["slug"]
         ebook_id = str(work["ebook_id"])
         out_path = out_dir / f"{slug}.md"
-        if out_path.exists():
-            print(f"[skip] {slug} already exists: {out_path}")
+        same_name = [p for p in out_dir.glob(f"{slug}.*") if p.suffix.lower() in {".md", ".txt"}]
+        if same_name or already_in(out_dir, ebook_id, work.get("title", "")):
+            print(f"[skip] {slug}: already in {out_dir}")
             continue
         print(f"[download] {work.get('author')} — {work.get('title')} (Project Gutenberg #{ebook_id})")
         try:
@@ -120,7 +130,7 @@ def main() -> None:
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST), help="Path to real_corpus_manifest.json")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Output directory, default data/philosophy_corpus")
     parser.add_argument("--clear-existing", action="store_true", help="Remove existing corpus files before downloading, except README files.")
-    parser.add_argument("--sleep", type=float, default=0.5, help="Seconds to wait between downloads.")
+    parser.add_argument("--sleep", type=float, default=2.0, help="Seconds to wait between downloads.")
     args = parser.parse_args()
     download_manifest(Path(args.manifest), Path(args.out), args.clear_existing, args.sleep)
 

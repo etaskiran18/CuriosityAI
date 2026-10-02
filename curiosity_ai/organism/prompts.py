@@ -58,6 +58,21 @@ REFLECT = IDENTITY + """
 behaved, what you have come to understand about curiosity itself, and what you want to pursue next.
 """.strip()
 
+LIBRARIAN = IDENTITY + """
+
+[LIBRARIAN] Your own books could not answer a question, so you decide what to look up elsewhere: an encyclopedia,
+a library of classic public-domain books, and abstracts of scientific papers. Ask for specific things you do not
+already have. Real names and titles work far better than vague subjects.
+""".strip()
+
+LIBRARIAN_SCHEMA = """
+{
+  "topics": ["an encyclopedia topic: a concept or a thinker, 1-4 words, e.g. Curiosity or Thomas Hobbes"],
+  "books": ["a classic book written before 1929, as author and title, e.g. Hobbes Leviathan"],
+  "papers": ["a short search phrase for scientific papers, e.g. information gap theory of curiosity"]
+}
+""".strip()
+
 ANTICIPATE_SCHEMA = """
 {
   "answer": "your best current answer, 1-2 sentences",

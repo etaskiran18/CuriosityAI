@@ -218,18 +218,26 @@ class Body:
         if c.gpu_temperature_guard:
             self._cool_down()
 
-    def after_heartbeat(self) -> None:
-        """Called between heartbeats: a breath, or a real rest after a stretch of work."""
+    def now(self) -> float:
+        return self._clock()
+
+    def after_heartbeat(self, max_rest_seconds: float | None = None) -> None:
+        """Called between heartbeats: a breath, or a real rest after a stretch of work.
+
+        ``max_rest_seconds`` shortens a planned rest at the end of a time-boxed
+        session; the temperature guard still applies before the next thought.
+        """
         c = self.config
         if not c.enabled:
             return
+        cap = float("inf") if max_rest_seconds is None else max(0.0, max_rest_seconds)
         if c.work_minutes > 0 and c.rest_minutes > 0 and self._clock() - self._awake_since >= c.work_minutes * 60:
-            start = self._clock()
-            self.log(f"I have been thinking for {c.work_minutes:g} minutes; resting {c.rest_minutes:g} minutes so the computer can cool down.")
-            self._sleep(c.rest_minutes * 60)
+            start, seconds = self._clock(), min(c.rest_minutes * 60, cap)
+            self.log(f"I have been thinking for {c.work_minutes:g} minutes; resting {_duration(seconds)} so the computer can cool down.")
+            self._sleep(seconds)
             self._rested("rhythm", start, f"a planned rest after {c.work_minutes:g} minutes of thinking")
         elif c.breath_seconds > 0:
-            self._sleep(c.breath_seconds)
+            self._sleep(min(c.breath_seconds, cap))
 
     def pause(self, seconds: float) -> None:
         """Wait without thinking (also used while waiting for the language model to come back)."""

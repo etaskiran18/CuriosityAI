@@ -20,11 +20,18 @@ organism whose **behavior is driven by curiosity**:
 - Grounded episodes are exported as **training data** for a future fine-tune.
 - It **takes care of your computer**: it rests regularly, stops when the NVIDIA GPU gets hot (read
   with `nvidia-smi`) until it has cooled down, and on a laptop thinks only while plugged in.
+- It **grows its own library** (`--web`): when its books are silent on a question, it looks things up
+  on Wikipedia, downloads public-domain books from Project Gutenberg, and reads paper abstracts, and it
+  records why it acquired each text.
+- Every session ends with a **report and metrics**, and baselines (`--policy random|novelty`) make
+  controlled experiments possible. See **[docs/RESEARCH.md](docs/RESEARCH.md)**.
 
 ```bash
 pip install -r requirements.txt
 ollama pull mistral:7b-instruct
 python live.py                      # live 5 heartbeats
+python live.py --minutes 60 --web   # a 1-hour session that can grow its library; ends with a report
+python live.py --add-book "Hobbes Leviathan"   # add a public-domain book to the library
 python live.py --status             # look inside its mind
 python live.py --ask "Can a machine be curious, or only act as if it were?"
 python live.py --forever            # let it live until Ctrl+C (it rests to keep the PC cool)
