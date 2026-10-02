@@ -231,6 +231,10 @@ class Body:
         elif c.breath_seconds > 0:
             self._sleep(c.breath_seconds)
 
+    def pause(self, seconds: float) -> None:
+        """Wait without thinking (also used while waiting for the language model to come back)."""
+        self._sleep(seconds)
+
     def describe(self) -> str:
         """One line for the console: what protects the computer right now."""
         c = self.config

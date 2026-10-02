@@ -20,6 +20,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -40,13 +41,13 @@ def check_ollama(config: AppConfig) -> bool:
         resp = requests.get(f"{base}/api/tags", timeout=5)
         resp.raise_for_status()
     except Exception as exc:
-        console.print(f"[red]Cannot reach Ollama at {base}[/red] ({exc}).\nStart it with:  [bold]ollama serve[/bold]")
+        console.print(f"[red]Cannot reach Ollama at {escape(base)}[/red] ({escape(str(exc))}).\nStart it with:  [bold]ollama serve[/bold]")
         return False
     names = {m.get("name", "") for m in resp.json().get("models", [])}
     model = config.llm.model
     if _is_model(names, model):
         return True
-    console.print(f"[red]Model '{model}' is not installed in Ollama.[/red] Install it with:  [bold]ollama pull {model}[/bold]")
+    console.print(f"[red]Model '{escape(model)}' is not installed in Ollama.[/red] Install it with:  [bold]ollama pull {escape(model)}[/bold]")
     return False
 
 
@@ -119,7 +120,7 @@ def run_checks(config: AppConfig) -> int:
         table.add_column(col)
     colors = {"ok": "green", "FIX": "red", "note": "yellow"}
     for status, item, detail in rows:
-        table.add_row(f"[{colors[status]}]{status}[/{colors[status]}]", item, detail)
+        table.add_row(f"[{colors[status]}]{status}[/{colors[status]}]", escape(item), escape(detail))
     console.print(table)
     problems = sum(1 for status, _, _ in rows if status == "FIX")
     if problems:
@@ -152,11 +153,11 @@ def print_heartbeat(organism: CuriosityOrganism, ep: Episode | None) -> None:
         console.print("[dim]No open question; the organism rests.[/dim]")
         return
     if ep.status_after == "no-thought":
-        console.print(f"[red][heartbeat {ep.heartbeat}] could not think:[/red] {'; '.join(ep.errors)}")
+        console.print(f"[red]\\[heartbeat {ep.heartbeat}] could not think:[/red] {escape('; '.join(ep.errors))}")
         return
     console.print(
-        f"[bold cyan][heartbeat {ep.heartbeat}][/bold cyan] {ep.question_id} "
-        f"[dim](curiosity {ep.drive.get('total', 0):.2f})[/dim] {ep.question}"
+        f"[bold cyan]\\[heartbeat {ep.heartbeat}][/bold cyan] {ep.question_id} "
+        f"[dim](curiosity {ep.drive.get('total', 0):.2f})[/dim] {escape(ep.question)}"
     )
     parts = [
         f"surprise {ep.prediction_error:.2f}",
@@ -172,14 +173,14 @@ def print_heartbeat(organism: CuriosityOrganism, ep: Episode | None) -> None:
         parts.append(f"{ep.rejected_quotes} unverifiable quote(s) discarded")
     if ep.status_after != "open":
         parts.append(f"now {ep.status_after}")
-    console.print("   " + " | ".join(parts))
+    console.print("   " + escape(" | ".join(parts)))
     if ep.insight:
-        console.print(f"   [italic]{ep.insight}[/italic]")
+        console.print(f"   [italic]{escape(ep.insight)}[/italic]")
     if ep.errors:
-        console.print(f"   [yellow]trouble: {'; '.join(ep.errors)}[/yellow]")
+        console.print(f"   [yellow]trouble: {escape('; '.join(ep.errors))}[/yellow]")
     if ep.heartbeat % max(1, organism.oc.reflect_every) == 0 and organism.oc.reflect_every > 0:
         sm = organism.state.self_model
-        console.print(f"   [magenta]reflection: {DIAGNOSES[sm.diagnosis]['name']}[/magenta] - {sm.last_reflection}")
+        console.print(f"   [magenta]reflection: {DIAGNOSES[sm.diagnosis]['name']}[/magenta] - {escape(sm.last_reflection)}")
 
 
 def print_status(organism: CuriosityOrganism) -> None:
@@ -194,14 +195,14 @@ def print_status(organism: CuriosityOrganism) -> None:
     t = st.temperament
     console.print(
         Panel(
-            f"[bold]{st.name}[/bold], {st.heartbeat} heartbeats old (born {st.born_at[:10]})\n"
+            f"[bold]{escape(st.name)}[/bold], {st.heartbeat} heartbeats old (born {st.born_at[:10]})\n"
             f"Questions: {', '.join(f'{k} {v}' for k, v in sorted(counts.items())) or 'none'}\n"
             f"Beliefs: {', '.join(f'{k} {v}' for k, v in sorted(belief_counts.items())) or 'none'}\n"
             f"State of curiosity: [magenta]{diagnosis['name']}[/magenta] - {diagnosis['meaning']}\n"
             f"Temperament: gap {t.gap:.2f}, learning progress {t.learning_progress:.2f}, surprise {t.surprise:.2f}, "
             f"novelty {t.novelty:.2f}, importance {t.importance:.2f}, patience {t.boredom_patience}, "
             f"exploration {t.exploration_temperature:.2f}\n\n"
-            f"[bold]What it thinks curiosity is:[/bold] {st.self_model.understanding_of_curiosity}",
+            f"[bold]What it thinks curiosity is:[/bold] {escape(st.self_model.understanding_of_curiosity)}",
             title="Curiosity organism",
         )
     )
@@ -211,7 +212,7 @@ def print_status(organism: CuriosityOrganism) -> None:
     for q, r in organism.drives()[:12]:
         table.add_row(
             q.id, f"{r.total:.2f}", f"{r.gap:.2f}", f"{r.learning_progress:.2f}", f"{r.surprise:.2f}",
-            f"{r.novelty:.2f}", f"{r.boredom:.2f}", f"{q.confidence:.2f}", one_line(q.text, 120),
+            f"{r.novelty:.2f}", f"{r.boredom:.2f}", f"{q.confidence:.2f}", escape(one_line(q.text, 120)),
         )
     console.print(table)
     beliefs = sorted(st.held_beliefs(), key=lambda b: -b.confidence)[:10]
@@ -221,9 +222,9 @@ def print_status(organism: CuriosityOrganism) -> None:
             btable.add_column(col)
         for b in beliefs:
             grounding = f"{len(b.evidence)} quote(s)" if b.evidence else "interpretation"
-            btable.add_row(b.id, f"{b.confidence:.2f}", grounding, one_line(b.statement, 140))
+            btable.add_row(b.id, f"{b.confidence:.2f}", grounding, escape(one_line(b.statement, 140)))
         console.print(btable)
-    console.print(f"Diary: {organism.home / 'diary.md'}   Mind: {organism.mind_path}")
+    console.print(f"Diary: {escape(str(organism.home / 'diary.md'))}   Mind: {escape(str(organism.mind_path))}")
 
 
 def main() -> int:
@@ -260,24 +261,24 @@ def main() -> int:
 
     if args.new_life:
         archived = CuriosityOrganism.archive(config)
-        console.print(f"Previous life archived to {archived}." if archived else "There was no previous life to archive.")
+        console.print(f"Previous life archived to {escape(str(archived))}." if archived else "There was no previous life to archive.")
 
     organism = CuriosityOrganism(config)
-    organism.body.log = lambda message: console.print(f"[blue]{message}[/blue]")
+    organism.body.log = lambda message: console.print(f"[blue]{escape(message)}[/blue]")
     if organism.newborn:
-        console.print(f"[green]{organism.state.name} is born[/green] with {len(organism.state.questions)} questions.")
+        console.print(f"[green]{escape(organism.state.name)} is born[/green] with {len(organism.state.questions)} questions.")
 
     for question in args.ask:
         q = organism.ask(question)
-        console.print(f"Asked: [bold]{q.id}[/bold] {q.text}")
+        console.print(f"Asked: [bold]{q.id}[/bold] {escape(q.text)}")
     if args.feed_file and not Path(args.feed_file).is_file():
-        console.print(f"[red]No such file: {args.feed_file}[/red]")
+        console.print(f"[red]No such file: {escape(args.feed_file)}[/red]")
         return 1
     if args.feed or args.feed_file:
         text = args.feed or Path(args.feed_file).read_text(encoding="utf-8", errors="ignore")
         title = args.title or (Path(args.feed_file).stem if args.feed_file else None)
         path = organism.feed(text, title)
-        console.print(f"Shared an observation: {path} (it will be noticed at the next heartbeat)")
+        console.print(f"Shared an observation: {escape(str(path))} (it will be noticed at the next heartbeat)")
 
     if args.status:
         print_status(organism)
@@ -290,14 +291,14 @@ def main() -> int:
         return 0
     if not check_ollama(config):
         return 1
-    console.print(f"[dim]{organism.body.describe()}[/dim]")
+    console.print(f"[dim]{escape(organism.body.describe())}[/dim]")
 
     try:
         if args.reflect:
             organism.reflect()
             sm = organism.state.self_model
-            console.print(f"[magenta]{DIAGNOSES[sm.diagnosis]['name']}[/magenta]: {sm.last_reflection}")
-            console.print(f"[bold]Curiosity, as it now understands it:[/bold] {sm.understanding_of_curiosity}")
+            console.print(f"[magenta]{DIAGNOSES[sm.diagnosis]['name']}[/magenta]: {escape(sm.last_reflection)}")
+            console.print(f"[bold]Curiosity, as it now understands it:[/bold] {escape(sm.understanding_of_curiosity)}")
         if args.forever or args.heartbeats is not None or not args.reflect:
             organism.live(
                 args.heartbeats,
@@ -308,9 +309,9 @@ def main() -> int:
         organism.save()
         console.print("\n[dim]Paused. The mind is saved; run again to continue its life.[/dim]")
     except OrganismError as exc:
-        console.print(f"[red]{exc}[/red]")
+        console.print(f"[red]{escape(str(exc))}[/red]")
         return 1
-    console.print(f"Diary: {organism.home / 'diary.md'}")
+    console.print(f"Diary: {escape(str(organism.home / 'diary.md'))}")
     return 0
 
 

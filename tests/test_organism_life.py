@@ -223,3 +223,32 @@ def test_a_voice_cannot_speak_for_the_other():
 
     text = "SKEPTIC: You assume doubt is good.\n\nWONDER: How can we clarify this?"
     assert _strip_voice_prefix(text, "Skeptic") == "You assume doubt is good."
+
+
+def test_with_nothing_left_open_it_reflects_and_finds_a_new_question(config):
+    llm = ScriptedLLM()
+    org = CuriosityOrganism(config, llm=llm)
+    org.state.questions["Q1"].status = "settled"
+    ep = org.heartbeat()
+    assert "REFLECT" in llm.calls
+    assert ep is not None
+    assert org.state.questions[ep.question_id].trigger == "reflection"
+
+
+def test_living_forever_waits_for_a_silent_model_instead_of_dying(config):
+    from curiosity_ai.config import BodyConfig
+    from curiosity_ai.organism.body import Body
+
+    waits: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        waits.append(seconds)
+        if len(waits) == 3:
+            raise KeyboardInterrupt  # the human stops it
+
+    body = Body(BodyConfig(enabled=False), sleep=sleep, clock=lambda: 0.0)
+    llm = ScriptedLLM(fail_steps=("ANTICIPATE", "COMPARE", "WONDER", "SKEPTIC", "SETTLE"))
+    org = CuriosityOrganism(config, llm=llm, body=body)
+    with pytest.raises(KeyboardInterrupt):
+        org.live(forever=True)
+    assert waits == [60, 120, 240]  # 1, 2, 4 minutes, and on up to 15

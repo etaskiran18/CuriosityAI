@@ -257,10 +257,16 @@ class CuriosityOrganism:
                 on_heartbeat(episode)
             if episode is not None and episode.status_after == "no-thought":
                 failures += 1
-                if failures >= 2:
+                if failures >= 2 and not forever:
                     raise OrganismError(
                         "The language model did not answer in two heartbeats in a row: " + "; ".join(episode.errors)
                     )
+                if failures >= 2:
+                    # A long life survives a model that is away for a while (a restart, the laptop
+                    # waking from sleep): wait longer each time, up to 15 minutes, and try again.
+                    minutes = min(15, 2 ** (failures - 2))
+                    self.body.log(f"The language model is not answering ({'; '.join(episode.errors)}). I will try again in {minutes} min.")
+                    self.body.pause(minutes * 60)
             else:
                 failures = 0
             if forever or i < total:
@@ -279,6 +285,10 @@ class CuriosityOrganism:
         readings = self._read_drives()
         if not readings:
             self._incubate(force=True)
+            readings = self._read_drives()
+        if not readings:
+            # Nothing puzzles me right now: step back and reflect, which proposes a new question.
+            self.reflect()
             readings = self._read_drives()
         if not readings:
             self.diary.note(f"## Heartbeat {st.heartbeat}\n\nNo question is open. I rest and wait for something to wonder about.")
