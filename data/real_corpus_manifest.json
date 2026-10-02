@@ -1,0 +1,240 @@
+{
+  "notes": "Public-domain primary philosophical texts for the Curiosity AI corpus. The downloader uses Project Gutenberg cache URLs and preserves Gutenberg text/license material. Verify copyright/public-domain status in your jurisdiction before redistribution.",
+  "works": [
+    {
+      "slug": "plato_republic_jowett",
+      "ebook_id": "1497",
+      "title": "The Republic",
+      "author": "Plato",
+      "year": "c. 375 BCE",
+      "translator": "Benjamin Jowett",
+      "tradition": "ancient Greek philosophy / political philosophy / epistemology",
+      "themes": [
+        "justice",
+        "knowledge",
+        "forms",
+        "education",
+        "philosopher-ruler"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/1497"
+    },
+    {
+      "slug": "plato_meno_jowett",
+      "ebook_id": "1643",
+      "title": "Meno",
+      "author": "Plato",
+      "year": "c. 380 BCE",
+      "translator": "Benjamin Jowett",
+      "tradition": "ancient Greek philosophy / inquiry / virtue",
+      "themes": [
+        "inquiry",
+        "recollection",
+        "virtue",
+        "knowledge",
+        "aporia"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/1643"
+    },
+    {
+      "slug": "plato_theaetetus_jowett",
+      "ebook_id": "1726",
+      "title": "Theaetetus",
+      "author": "Plato",
+      "year": "c. 369 BCE",
+      "translator": "Benjamin Jowett",
+      "tradition": "ancient Greek epistemology / Socratic inquiry",
+      "themes": [
+        "knowledge",
+        "wonder",
+        "perception",
+        "judgment",
+        "aporia"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/1726"
+    },
+    {
+      "slug": "plato_apology_jowett",
+      "ebook_id": "1656",
+      "title": "Apology",
+      "author": "Plato",
+      "year": "c. 399 BCE",
+      "translator": "Benjamin Jowett",
+      "tradition": "ancient Greek philosophy / Socratic inquiry",
+      "themes": [
+        "Socratic questioning",
+        "wisdom",
+        "ignorance",
+        "public reason"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/1656"
+    },
+    {
+      "slug": "aristotle_nicomachean_ethics",
+      "ebook_id": "8438",
+      "title": "The Nicomachean Ethics",
+      "author": "Aristotle",
+      "year": "c. 340 BCE",
+      "translator": "D. P. Chase",
+      "tradition": "ancient Greek philosophy / ethics",
+      "themes": [
+        "virtue",
+        "practical wisdom",
+        "habituation",
+        "human flourishing"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/8438"
+    },
+    {
+      "slug": "descartes_discourse_method",
+      "ebook_id": "59",
+      "title": "Discourse on the Method",
+      "author": "René Descartes",
+      "year": "1637",
+      "translator": "John Veitch",
+      "tradition": "rationalism / early modern philosophy",
+      "themes": [
+        "methodic doubt",
+        "certainty",
+        "reason",
+        "foundations of knowledge"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/59"
+    },
+    {
+      "slug": "spinoza_ethics",
+      "ebook_id": "3800",
+      "title": "Ethics",
+      "author": "Benedict de Spinoza",
+      "year": "1677",
+      "translator": "R. H. M. Elwes",
+      "tradition": "rationalism / metaphysics / ethics",
+      "themes": [
+        "necessity",
+        "affects",
+        "freedom",
+        "reason"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/3800"
+    },
+    {
+      "slug": "hume_enquiry_human_understanding",
+      "ebook_id": "9662",
+      "title": "An Enquiry Concerning Human Understanding",
+      "author": "David Hume",
+      "year": "1748",
+      "translator": "N/A",
+      "tradition": "empiricism / epistemology",
+      "themes": [
+        "experience",
+        "causation",
+        "custom",
+        "skepticism",
+        "induction"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/9662"
+    },
+    {
+      "slug": "kant_critique_pure_reason",
+      "ebook_id": "4280",
+      "title": "The Critique of Pure Reason",
+      "author": "Immanuel Kant",
+      "year": "1781/1787",
+      "translator": "J. M. D. Meiklejohn",
+      "tradition": "transcendental philosophy / epistemology",
+      "themes": [
+        "limits of reason",
+        "synthetic a priori",
+        "critique",
+        "metaphysics",
+        "conditions of experience"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/4280"
+    },
+    {
+      "slug": "mill_on_liberty",
+      "ebook_id": "34901",
+      "title": "On Liberty",
+      "author": "John Stuart Mill",
+      "year": "1859",
+      "translator": "N/A",
+      "tradition": "liberalism / political philosophy",
+      "themes": [
+        "individuality",
+        "free discussion",
+        "truth",
+        "fallibility"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/34901"
+    },
+    {
+      "slug": "nietzsche_beyond_good_and_evil",
+      "ebook_id": "4363",
+      "title": "Beyond Good and Evil",
+      "author": "Friedrich Nietzsche",
+      "year": "1886",
+      "translator": "Helen Zimmern",
+      "tradition": "genealogy / critique of morality",
+      "themes": [
+        "truth",
+        "perspectivism",
+        "morality",
+        "philosophical prejudice"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/4363"
+    },
+    {
+      "slug": "dewey_how_we_think",
+      "ebook_id": "37423",
+      "title": "How We Think",
+      "author": "John Dewey",
+      "year": "1910",
+      "translator": "N/A",
+      "tradition": "pragmatism / philosophy of education / inquiry",
+      "themes": [
+        "reflective thought",
+        "inquiry",
+        "doubt",
+        "education",
+        "judgment"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/37423"
+    },
+    {
+      "slug": "confucius_analects_legge",
+      "ebook_id": "3330",
+      "title": "The Analects of Confucius",
+      "author": "Confucius",
+      "year": "compiled c. Warring States / Han period; translation 19th century",
+      "translator": "James Legge",
+      "tradition": "Classical Chinese philosophy / Confucianism",
+      "themes": [
+        "learning",
+        "moral cultivation",
+        "ren",
+        "li",
+        "humility",
+        "authority",
+        "self-cultivation"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/3330"
+    },
+    {
+      "slug": "william_james_will_to_believe",
+      "ebook_id": "26659",
+      "title": "The Will to Believe, and Other Essays in Popular Philosophy",
+      "author": "William James",
+      "year": "1897",
+      "translator": "N/A",
+      "tradition": "pragmatism / epistemology / belief and doubt",
+      "themes": [
+        "belief",
+        "doubt",
+        "will",
+        "inquiry",
+        "evidence",
+        "rationality"
+      ],
+      "source_url": "https://www.gutenberg.org/ebooks/26659"
+    }
+  ]
+}

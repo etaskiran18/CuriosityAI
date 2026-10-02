@@ -1,0 +1,26 @@
+{
+  "name": "Curiosity Philosophy Benchmark v1",
+  "purpose": "Fixed topics for evaluating whether the loop deepens curiosity rather than drifting into generic philosopher comparison.",
+  "topics": [
+    "Is curiosity a virtue, a method, or a danger to certainty?",
+    "Is wonder different from curiosity in the beginning of philosophy?",
+    "Can curiosity destroy certainty, or does it require certainty as fuel?",
+    "Is skepticism disciplined curiosity or the failure of curiosity?",
+    "Does inquiry require ignorance, or does it require prior knowledge?",
+    "When does intellectual curiosity become intellectual vice?",
+    "Is intellectual humility a form of curiosity or a limit placed on curiosity?",
+    "Can education preserve curiosity while teaching established knowledge?",
+    "Is the desire for truth separable from curiosity?",
+    "Can an AI be curious without desire?",
+    "What is the difference between curiosity as appetite and curiosity as method?",
+    "Is doubt an obstacle to inquiry or the condition that makes inquiry possible?",
+    "Does curiosity need a stopping rule to become knowledge?",
+    "Can excessive openness become epistemic weakness?",
+    "Is curiosity morally neutral, or does it need ethical discipline?",
+    "Does scientific inquiry depend more on curiosity or on method?",
+    "Is philosophical curiosity different from information-seeking?",
+    "Can curiosity be trained without becoming dogmatic?",
+    "Does curiosity aim at truth, novelty, or transformation of the inquirer?",
+    "What is the strongest objection to treating curiosity as an intellectual virtue?"
+  ]
+}
