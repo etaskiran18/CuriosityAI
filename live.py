@@ -25,6 +25,7 @@ from curiosity_ai.config import AppConfig, load_config
 from curiosity_ai.organism import CuriosityOrganism, OrganismError
 from curiosity_ai.organism.drive import DIAGNOSES
 from curiosity_ai.organism.state import Episode
+from curiosity_ai.organism.textutil import one_line
 
 console = Console()
 
@@ -109,7 +110,7 @@ def print_status(organism: CuriosityOrganism) -> None:
     for q, r in organism.drives()[:12]:
         table.add_row(
             q.id, f"{r.total:.2f}", f"{r.gap:.2f}", f"{r.learning_progress:.2f}", f"{r.surprise:.2f}",
-            f"{r.novelty:.2f}", f"{r.boredom:.2f}", f"{q.confidence:.2f}", q.text[:90],
+            f"{r.novelty:.2f}", f"{r.boredom:.2f}", f"{q.confidence:.2f}", one_line(q.text, 120),
         )
     console.print(table)
     beliefs = sorted(st.held_beliefs(), key=lambda b: -b.confidence)[:10]
@@ -119,7 +120,7 @@ def print_status(organism: CuriosityOrganism) -> None:
             btable.add_column(col)
         for b in beliefs:
             grounding = f"{len(b.evidence)} quote(s)" if b.evidence else "interpretation"
-            btable.add_row(b.id, f"{b.confidence:.2f}", grounding, b.statement[:110])
+            btable.add_row(b.id, f"{b.confidence:.2f}", grounding, one_line(b.statement, 140))
         console.print(btable)
     console.print(f"Diary: {organism.home / 'diary.md'}   Mind: {organism.mind_path}")
 

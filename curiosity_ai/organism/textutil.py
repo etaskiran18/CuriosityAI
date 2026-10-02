@@ -171,6 +171,8 @@ def clip(text: str, max_chars: int) -> str:
     stop = max(cut.rfind(". "), cut.rfind("\n"))
     if stop > max_chars * 0.6:
         cut = cut[: stop + 1]
+    elif " " in cut:
+        cut = cut[: cut.rfind(" ")]
     return cut.rstrip() + " [...]"
 
 

@@ -123,7 +123,9 @@ Instead:
 ## Self-regulation
 
 At each reflection the organism measures its **vital signs** over recent episodes: progress rate (how
-often its mind changed), mean surprise, diversity of questions visited, and new questions per episode.
+often its mind actually moved: confidence changed, an old belief was doubted, or a belief backed by a
+verified quote was formed), mean surprise, diversity of questions visited, and new questions per
+episode.
 It then diagnoses its state and nudges its temperament (the drive weights) in small, bounded steps:
 
 | Diagnosis | Pattern | Response |

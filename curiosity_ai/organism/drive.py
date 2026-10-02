@@ -211,10 +211,13 @@ def compute_vitals(episodes: list[Episode]) -> Vitals:
     n = len(episodes)
     if n == 0:
         return Vitals(0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    # Progress means the mind actually moved: confidence changed, an old belief was
+    # doubted, or a belief backed by a verified quote was formed. Unsupported
+    # "lessons" are too cheap for a language model to count.
     progressed = sum(
         1
         for e in episodes
-        if abs(e.confidence - e.prior_confidence) >= 0.05 or e.new_belief_ids or e.doubted_belief_ids
+        if abs(e.confidence - e.prior_confidence) >= 0.05 or e.doubted_belief_ids or e.grounded_new_beliefs
     )
     return Vitals(
         episodes=n,

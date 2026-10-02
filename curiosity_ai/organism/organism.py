@@ -436,8 +436,8 @@ class CuriosityOrganism:
                 system, voice, temperature = P.WONDER, "Wonder", 0.6
                 user = (
                     f"Question: {q.text}\n\nWhat the texts showed:\n{findings}\n\nThe dialogue so far:\n{so_far}\n\n"
-                    "In at most 100 words, answer the skeptic: concede what is right, defend what still stands, "
-                    "and say plainly where you now stand."
+                    "In at most 100 words of plain prose (no headings or labels), reply to the skeptic: admit what "
+                    "the objection gets right, keep what still holds, and end with one sentence saying where you now stand."
                 )
             text = self._text(system, user, temperature=temperature, errors=errors, step=voice.lower())
             if not text:
@@ -607,6 +607,7 @@ class CuriosityOrganism:
             confidence=new_confidence,
             insight=settlement.insight,
             new_belief_ids=new_beliefs,
+            grounded_new_beliefs=sum(1 for bid in new_beliefs if st.beliefs[bid].evidence),
             reinforced_belief_ids=reinforced,
             doubted_belief_ids=doubted,
             new_question_ids=born,

@@ -9,6 +9,7 @@ from curiosity_ai.organism.drive import (
     Vitals,
     boredom,
     choose,
+    compute_vitals,
     current_surprise,
     diagnose,
     information_gap,
@@ -17,7 +18,7 @@ from curiosity_ai.organism.drive import (
     read_drive,
     regulate,
 )
-from curiosity_ai.organism.state import Question, Temperament, Visit
+from curiosity_ai.organism.state import Episode, Question, Temperament, Visit
 
 
 def visited(qid: str, errors: list[float], confidences: list[float] | None = None, last: int | None = None) -> Question:
@@ -156,3 +157,15 @@ def test_regulation_keeps_weights_bounded_over_a_long_life():
         t, _ = regulate(t, "restless_curiositas", baseline=Temperament())
     assert all(0.0 < w <= 0.6 + 1e-9 for w in t.weights().values())
     assert t.boredom_patience <= 6
+
+
+def test_unsupported_lessons_do_not_count_as_progress():
+    def ep(qid: str, **kw) -> Episode:
+        return Episode(heartbeat=1, question_id=qid, question=qid, prior_confidence=0.4, confidence=0.42, **kw)
+
+    talk = [ep(f"Q{i}", new_belief_ids=["B1"], new_question_ids=[f"Q{i + 10}"], prediction_error=0.3) for i in range(4)]
+    assert compute_vitals(talk).progress_rate == 0.0
+    real = [ep("Q1", new_belief_ids=["B1"], grounded_new_beliefs=1), ep("Q2", doubted_belief_ids=["B2"]),
+            Episode(heartbeat=3, question_id="Q3", question="Q3", prior_confidence=0.3, confidence=0.5), ep("Q4")]
+    assert compute_vitals(real).progress_rate == 0.75
+    assert diagnose(compute_vitals(talk)) == "restless_curiositas"
