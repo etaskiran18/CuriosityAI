@@ -1,0 +1,200 @@
+project:
+  name: Curiosity Epistemic Loop
+  version: 7.0.0
+  description: Aggressive-depth philosophical curiosity system with argument integrity gates, balance stress testing, hybrid web/academic grounding, and stricter revision control.
+
+llm:
+  provider: ollama
+  base_url: http://localhost:11434
+  model: mistral:7b-instruct
+  temperature: 0.35
+  top_p: 0.9
+  num_ctx: 8192
+  timeout_seconds: 300
+  json_repair_attempts: 2
+
+loop:
+  max_iterations: 5
+  min_curiosity_score: 0.35
+  stop_if_redundancy_above: 0.82
+  stop_if_no_progress_for: 2
+  short_term_memory_items: 10
+  candidate_questions_per_iteration: 8
+  next_topics_per_iteration: 5
+
+corpus:
+  path: data/philosophy_corpus
+  chunk_size_chars: 2400
+  chunk_overlap_chars: 450
+  accepted_extensions: [.txt, .md, .markdown]
+  auto_ingest_on_start: true
+
+memory:
+  backend: chroma
+  persist_dir: memory/chroma
+  journal_path: memory/journal_v7.jsonl
+  collection_prefix: curiosity_ai_v7
+  top_k_passages: 12
+  top_k_memories: 3
+
+web_grounding:
+  enabled: false
+  provider: tavily
+  max_results: 5
+  search_depth: basic
+  include_answer: false
+  include_raw_content: false
+  strict_citations: true
+  allowed_domains: []
+  blocked_domains: []
+  timeout_seconds: 30
+  tavily_api_key_env: TAVILY_API_KEY
+  semantic_scholar_api_key_env: SEMANTIC_SCHOLAR_API_KEY
+  academic_search_enabled: true
+  academic_max_results: 3
+  use_web_when_source_gate_limited: true
+
+agents:
+  reader:
+    enabled: true
+  explorer:
+    enabled: true
+  radicalizer:
+    enabled: true
+  critic:
+    enabled: true
+  research:
+    enabled: true
+  textual_analyst:
+    enabled: true
+  argument_reconstructor:
+    enabled: true
+  position_enforcer:
+    enabled: true
+  balance_stress_tester:
+    enabled: true
+  synthesizer:
+    enabled: true
+  argument_critic:
+    enabled: true
+  philosophical_depth_judge:
+    enabled: true
+  philosophical_move_detector:
+    enabled: true
+  curiosity_theory_tracker:
+    enabled: true
+  evaluator:
+    enabled: true
+  planner:
+    enabled: true
+    exploration_temperature: 0.35
+
+scoring:
+  novelty_weight: 0.12
+  depth_weight: 0.24
+  epistemic_tension_weight: 0.24
+  researchability_weight: 0.10
+  generativity_weight: 0.08
+  citation_grounding_weight: 0.18
+  redundancy_penalty_weight: 0.45
+  depth_quality_weight: 0.30
+  argument_quality_weight: 0.25
+  curiosity_progress_weight: 0.20
+  hedging_penalty_weight: 0.18
+  unsupported_inference_penalty_weight: 0.22
+
+depth:
+  enabled: true
+  min_primary_sources: 2
+  min_textual_analyses: 3
+  min_synthesis_words: 1400
+  target_synthesis_words: 1900
+  max_synthesis_words: 2800
+  block_synthesis_without_primary_sources: false
+  require_argument_reconstruction: true
+  require_post_synthesis_critique: true
+  prefer_primary_over_memory: true
+  min_philosophical_depth_score: 0.76
+  min_curiosity_progress_score: 0.70
+  block_if_curiosity_theme_missing: true
+  require_depth_judge: true
+  require_real_philosophical_move: true
+
+aggressive_mode:
+  enabled: true
+  radical_questions: 4
+  require_strong_position: true
+  require_binary_or_thesis_position: true
+  require_curiosity_continuity: true
+  forbid_safe_synthesis: true
+  banned_safe_patterns:
+    - could potentially
+    - might suggest
+    - may suggest
+    - it can be interpreted
+    - possibly
+    - perhaps
+    - in some way
+    - to some extent
+    - it remains unclear
+  hedge_words:
+    - might
+    - could
+    - may
+    - possibly
+    - potentially
+    - perhaps
+    - seems
+    - suggests
+    - it can be inferred
+    - to some extent
+    - in some way
+  max_hedge_ratio: 0.030
+  min_real_move_score: 0.72
+
+balance:
+  enabled: true
+  trigger_words: [balanced, balance, tempered, moderated, guided, disciplined]
+  require_if_position_is_conditional: true
+  force_revision_if_balance_undefined: true
+
+revision:
+  enabled: true
+  max_revision_rounds: 2
+  revise_if_depth_below: 0.76
+  revise_if_curiosity_progress_below: 0.70
+  revise_if_move_below: 0.72
+  force_same_topic_on_failure: true
+  same_topic_prefix: "REVISION REQUIRED — deepen without drifting: "
+
+curiosity_state:
+  enabled: true
+  path: memory/curiosity_theory_state_v7.json
+  require_property_update: true
+
+dataset:
+  enabled: true
+  output_path: datasets/curiosity_sft_v7.jsonl
+  include_web_sources: false
+  include_low_score_items: false
+  min_score_for_dataset: 0.80
+  use_evaluation_score: true
+  require_philosophical_depth_pass: true
+  require_real_move_pass: true
+  require_strong_position: true
+
+reports:
+  output_dir: reports
+  write_iteration_reports: true
+  write_final_report: true
+  include_citations: true
+
+publishing:
+  enabled: false
+  require_human_approval: true
+  min_score_to_queue: 0.82
+  queue_dir: publications/pending
+  published_dir: publications/published
+  platform: local_markdown
+  public_site_dir: publications/site
+  webhook_url_env: CURIOSITY_PUBLISH_WEBHOOK
