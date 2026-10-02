@@ -44,6 +44,10 @@ own depth:
   rest after every stretch of thinking, a GPU temperature guard (`nvidia-smi`; stop at 80 °C, continue
   at 65 °C), and a battery guard for laptops. Rests are written in the diary. `--no-rest` turns it off;
   `--pause` sets the breath.
+- **Setup check** (`python live.py --check`): Python, library, Ollama, model, a test answer with its
+  time, how much of the model Ollama reports on the GPU, GPU temperature, power, and write access.
+- **WSL**: the battery guard asks Windows for the charger state (cached for a minute);
+  `docs/WSL_SETUP.md` is a step-by-step guide for Windows laptops with an NVIDIA GPU.
 - **LLM trace** (`trace_llm: true`): every prompt and raw reply in `llm_trace.jsonl`, for tuning prompts.
 - `docs/ORGANISM.md`: architecture and the philosophy-to-mechanism map, with corpus line references.
 - Tests: `tests/test_organism_*.py` (a scripted fake model, so no Ollama is needed).

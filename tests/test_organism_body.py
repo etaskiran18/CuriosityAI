@@ -4,7 +4,13 @@ from pathlib import Path
 
 from curiosity_ai.config import BodyConfig
 from curiosity_ai.organism import CuriosityOrganism
-from curiosity_ai.organism.body import Body, SystemSensors, linux_on_battery, parse_gpu_temperatures
+from curiosity_ai.organism.body import (
+    Body,
+    SystemSensors,
+    linux_on_battery,
+    parse_gpu_temperatures,
+    parse_win32_battery_status,
+)
 
 from .organism_fakes import ScriptedLLM
 
@@ -160,3 +166,35 @@ def test_the_organism_rests_between_heartbeats_and_notes_it_in_its_diary(config)
     diary = (org.home / "diary.md").read_text(encoding="utf-8")
     assert "to let the computer cool down: GPU 84°C -> 60°C" in diary
     assert org.state.heartbeat == 2
+
+
+def test_windows_battery_codes():
+    assert parse_win32_battery_status("1\r\n") is True
+    assert parse_win32_battery_status("2\r\n") is False
+    assert parse_win32_battery_status("6\r\n") is False
+    assert parse_win32_battery_status("") is None  # desktop: no battery
+    assert parse_win32_battery_status("10\r\n") is None
+
+
+def test_inside_wsl_the_charger_is_asked_from_windows(monkeypatch, tmp_path: Path):
+    import subprocess
+
+    calls = []
+
+    class Done:
+        stdout = "1\r\n"
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return Done()
+
+    monkeypatch.setattr("curiosity_ai.organism.body.sys.platform", "linux")
+    monkeypatch.setattr("curiosity_ai.organism.body.running_in_wsl", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: "/mnt/c/WINDOWS/powershell.exe" if name == "powershell.exe" else None)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    sensors = SystemSensors(power_supply_dir=tmp_path)
+    assert sensors.in_wsl
+    assert sensors.on_battery() is True
+    assert sensors.on_battery() is True
+    assert len(calls) == 1  # cached: asking Windows is slow
+    assert "Win32_Battery" in calls[0][-1]

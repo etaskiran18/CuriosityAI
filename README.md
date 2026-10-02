@@ -28,7 +28,10 @@ python live.py                      # live 5 heartbeats
 python live.py --status             # look inside its mind
 python live.py --ask "Can a machine be curious, or only act as if it were?"
 python live.py --forever            # let it live until Ctrl+C (it rests to keep the PC cool)
+python live.py --check              # check this computer's setup and say what to fix
 ```
+
+On Windows, run it inside WSL with your NVIDIA GPU: see **[docs/WSL_SETUP.md](docs/WSL_SETUP.md)**.
 
 Then read `memory/organism/diary.md`. **[docs/ORGANISM.md](docs/ORGANISM.md)** explains the design:
 every mechanism and the philosophical idea it comes from (Plato, Meno's paradox, Peirce, Dewey,

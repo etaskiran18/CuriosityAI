@@ -8,11 +8,13 @@ Examples:
     python live.py --feed-file my_notes.txt --title "My notes on boredom"
     python live.py --status                          # look inside its mind
     python live.py --new-life                        # archive this life and start again
+    python live.py --check                           # check this computer's setup and say what to fix
 """
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -22,7 +24,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 from curiosity_ai.config import AppConfig, load_config
+from curiosity_ai.llm import OllamaClient
 from curiosity_ai.organism import CuriosityOrganism, OrganismError
+from curiosity_ai.organism.body import SystemSensors
 from curiosity_ai.organism.drive import DIAGNOSES
 from curiosity_ai.organism.state import Episode
 from curiosity_ai.organism.textutil import one_line
@@ -40,10 +44,107 @@ def check_ollama(config: AppConfig) -> bool:
         return False
     names = {m.get("name", "") for m in resp.json().get("models", [])}
     model = config.llm.model
-    if model in names or f"{model}:latest" in names or any(n.startswith(model + ":") for n in names):
+    if _is_model(names, model):
         return True
     console.print(f"[red]Model '{model}' is not installed in Ollama.[/red] Install it with:  [bold]ollama pull {model}[/bold]")
     return False
+
+
+def _is_model(names: set[str], model: str) -> bool:
+    return model in names or f"{model}:latest" in names or any(n.startswith(model + ":") for n in names)
+
+
+def run_checks(config: AppConfig) -> int:
+    """Check this computer's setup, one line per item, and say what to fix."""
+    rows: list[tuple[str, str, str]] = []
+
+    v = sys.version_info
+    rows.append(("ok" if v >= (3, 10) else "FIX", "Python", f"{v.major}.{v.minor}.{v.micro}" + ("" if v >= (3, 10) else ": needs 3.10 or newer")))
+    try:
+        import chromadb
+
+        rows.append(("ok", "chromadb", f"{chromadb.__version__} (used by run.py and retrieval: chroma)"))
+    except Exception:
+        rows.append(("note", "chromadb", "not installed: only needed for the v7 run.py or retrieval: chroma"))
+
+    corpus = Path(config.corpus.path)
+    extensions = {e.lower() for e in config.corpus.accepted_extensions}
+    texts = [f for f in corpus.glob("*") if f.suffix.lower() in extensions and not f.name.lower().startswith("readme")] if corpus.exists() else []
+    rows.append(("ok" if texts else "FIX", "Library", f"{len(texts)} texts in {corpus}" if texts else f"no texts found in {corpus}"))
+
+    base, model = config.llm.base_url.rstrip("/"), config.llm.model
+    try:
+        names = {m.get("name", "") for m in requests.get(f"{base}/api/tags", timeout=5).json().get("models", [])}
+        rows.append(("ok", "Ollama", f"running at {base}"))
+    except Exception:
+        names = None
+        rows.append(("FIX", "Ollama", f"not reachable at {base}. Start it in another terminal with: ollama serve"))
+    if names is not None and not _is_model(names, model):
+        rows.append(("FIX", "Model", f"'{model}' is not installed. Run: ollama pull {model}"))
+    elif names is not None:
+        rows.append(("ok", "Model", model))
+        try:
+            start = time.time()
+            OllamaClient(config.llm).json_chat("You answer in JSON.", 'Reply with {"ok": true}.', '{"ok": true}', temperature=0.0, max_tokens=20)
+            rows.append(("ok", "Model answers", f"in {time.time() - start:.1f} s (the first call also loads the model)"))
+            rows.append(_gpu_share(base, model))
+        except Exception as exc:
+            rows.append(("FIX", "Model answers", f"the model did not answer: {one_line(str(exc), 120)}"))
+
+    sensors = SystemSensors()
+    temp = sensors.gpu_temperature()
+    if temp is not None:
+        rows.append(("ok", "GPU temperature", f"{temp:.0f}°C now; it pauses at {config.organism.body.max_gpu_temp_c:g}°C"))
+    else:
+        rows.append(("note", "GPU temperature", "not readable (nvidia-smi not found); the rest rhythm still protects the PC"))
+    power = sensors.on_battery()
+    rows.append((
+        "ok" if power is False else "note",
+        "Power",
+        {False: "plugged in", True: "on battery: it will wait for the charger", None: "unknown (no battery found, or not readable)"}[power],
+    ))
+
+    home = Path(config.organism.home)
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+        probe = home / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        rows.append(("ok", "Organism home", str(home)))
+    except OSError as exc:
+        rows.append(("FIX", "Organism home", f"cannot write to {home}: {exc}"))
+
+    table = Table(title="Curiosity organism: setup check")
+    for col in ("", "item", "detail"):
+        table.add_column(col)
+    colors = {"ok": "green", "FIX": "red", "note": "yellow"}
+    for status, item, detail in rows:
+        table.add_row(f"[{colors[status]}]{status}[/{colors[status]}]", item, detail)
+    console.print(table)
+    problems = sum(1 for status, _, _ in rows if status == "FIX")
+    if problems:
+        console.print(f"[red]{problems} thing(s) to fix, see above.[/red]")
+        return 1
+    console.print("[green]Ready. Try:  python live.py --heartbeats 3[/green]")
+    return 0
+
+
+def _gpu_share(base: str, model: str) -> tuple[str, str, str]:
+    """How much of the loaded model Ollama keeps in GPU memory."""
+    try:
+        loaded = requests.get(f"{base}/api/ps", timeout=5).json().get("models", [])
+    except Exception:
+        return ("note", "GPU use", "could not ask Ollama where the model runs")
+    for m in loaded:
+        if not _is_model({m.get("name") or m.get("model") or ""}, model):
+            continue
+        size, vram = m.get("size") or 0, m.get("size_vram") or 0
+        if size and vram >= 0.99 * size:
+            return ("ok", "GPU use", "Ollama reports 100% of the model on the GPU")
+        if size and vram:
+            return ("note", "GPU use", f"Ollama reports {vram / size:.0%} on the GPU and the rest on the CPU (slower); a smaller model would fit fully")
+        return ("note", "GPU use", "Ollama reports the model on the CPU only (slow); check the NVIDIA driver with: nvidia-smi")
+    return ("note", "GPU use", "the model is not loaded right now")
 
 
 def print_heartbeat(organism: CuriosityOrganism, ep: Episode | None) -> None:
@@ -141,6 +242,7 @@ def main() -> int:
     parser.add_argument("--new-life", action="store_true", help="Archive the current life and start a new one")
     parser.add_argument("--model", default=None, help="Override llm.model (e.g. mistral:7b-instruct, qwen2.5:3b)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible choices")
+    parser.add_argument("--check", action="store_true", help="Check this computer's setup (Python, Ollama, model, GPU, power) and exit")
     args = parser.parse_args()
 
     load_dotenv()
@@ -153,6 +255,8 @@ def main() -> int:
         config.organism.body.breath_seconds = args.pause
     if args.no_rest:
         config.organism.body.enabled = False
+    if args.check:
+        return run_checks(config)
 
     if args.new_life:
         archived = CuriosityOrganism.archive(config)

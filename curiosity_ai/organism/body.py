@@ -16,6 +16,7 @@ block, and the time-based rhythm still protects the machine.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -64,6 +65,45 @@ def linux_on_battery(power_supply_dir: Path) -> bool | None:
     return not any(mains)
 
 
+# Win32_Battery.BatteryStatus: 1 discharging, 4 low, 5 critical (on battery);
+# 2 on AC, 3 fully charged, 6-9 charging (plugged in); other values are unclear.
+_WIN32_ON_BATTERY = {1, 4, 5}
+_WIN32_ON_AC = {2, 3, 6, 7, 8, 9}
+
+
+def parse_win32_battery_status(text: str) -> bool | None:
+    codes = [int(code) for code in re.findall(r"\d+", text)]
+    if any(code in _WIN32_ON_AC for code in codes):
+        return False
+    if codes and all(code in _WIN32_ON_BATTERY for code in codes):
+        return True
+    return None
+
+
+def running_in_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
+
+
+def _wsl_on_battery() -> bool | None:
+    """Inside WSL, Linux cannot see the laptop's charger, so ask Windows."""
+    powershell = shutil.which("powershell.exe")
+    if not powershell:
+        return None
+    try:
+        out = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance -ClassName Win32_Battery).BatteryStatus"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_win32_battery_status(out)
+
+
 def _windows_on_battery() -> bool | None:
     import ctypes
 
@@ -101,9 +141,12 @@ def _mac_on_battery() -> bool | None:
 class SystemSensors:
     """Reads the GPU temperature and the power source of this computer."""
 
-    def __init__(self, power_supply_dir: Path = Path("/sys/class/power_supply")):
+    def __init__(self, power_supply_dir: Path = Path("/sys/class/power_supply"), battery_cache_seconds: float = 60.0):
         self.nvidia_smi = shutil.which("nvidia-smi")
         self.power_supply_dir = power_supply_dir
+        self.in_wsl = sys.platform.startswith("linux") and running_in_wsl()
+        self.battery_cache_seconds = battery_cache_seconds  # asking Windows from WSL takes a second
+        self._battery: tuple[float, bool | None] | None = None
 
     def gpu_temperature(self) -> float | None:
         if not self.nvidia_smi:
@@ -122,10 +165,22 @@ class SystemSensors:
         return parse_gpu_temperatures(out.stdout)
 
     def on_battery(self) -> bool | None:
+        now = time.monotonic()
+        if self._battery is not None and now - self._battery[0] < self.battery_cache_seconds:
+            return self._battery[1]
+        value = self._read_power()
+        self._battery = (now, value)
+        return value
+
+    def _read_power(self) -> bool | None:
         if sys.platform == "win32":
             return _windows_on_battery()
         if sys.platform == "darwin":
             return _mac_on_battery()
+        if self.in_wsl:
+            value = _wsl_on_battery()
+            if value is not None:
+                return value
         return linux_on_battery(self.power_supply_dir)
 
 
