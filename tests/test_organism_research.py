@@ -378,3 +378,12 @@ def test_a_title_is_found_past_banners_and_across_a_line_break(body, title):
 
     assert _first_title_line(body) == title
 
+
+def test_the_opening_skips_the_authors_addresses():
+    text = ("A reconstruction method of electron density distribution\nV. V. Shastun 1, O. V. Agapitov 2\n"
+            "2Space Science Laboratory, the University of California 7 Gauss Way, Berkeley, CA 94720, USA\n"
+            "vitalii.shastun@cnrs-orleans.fr\n"
+            "A method for the estimation of electron density from the ratio of the wave magnetic and electric field "
+            "amplitude of whistler waves is developed.")
+    assert opening(text).startswith("A method for the estimation of electron density")
+

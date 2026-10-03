@@ -95,7 +95,11 @@ def opening(text: str, chars: int = 400) -> str:
         body = text[match.end():match.end() + chars * 3]
     else:
         lines = head.splitlines()
-        first = next((i for i, line in enumerate(lines) if len(line.split()) >= 10 and not _looks_like_header(line.strip())), 0)
+        first = next(
+            (i for i, line in enumerate(lines)
+             if len(line.split()) >= 10 and not _looks_like_header(line.strip()) and not _looks_like_affiliation(line)),
+            0,
+        )
         body = "\n".join(lines[first:])[: chars * 3]
     return one_line(re.sub(r"\[page \d+\]", " ", body), chars)
 
@@ -151,7 +155,13 @@ def _rejoin_letter_spaced(text: str) -> str:
     for line in text.split("\n"):
         words: list[str] = []
         for word in line.split(" "):
-            if words and len(word) == 1 and word.islower() and words[-1].isalpha() and known(words[-1] + word):
+            head = words[-1] if words else ""
+            split = head.isalpha() and word.isalpha() and word.islower() and (
+                len(word) == 1
+                # "gener al": a two-letter tail only when the head is no word of its own ("a re" stays)
+                or (len(word) == 2 and vocabulary.get(head.lower(), 0) <= 1 and vocabulary.get(word, 0) <= 1)
+            )
+            if split and known(head + word):
                 words[-1] += word
             else:
                 words.append(word)
@@ -179,6 +189,19 @@ def _looks_like_header(line: str) -> bool:
         or bool(re.search(r"\bdoi\b|\bissn\b|\bvol\.|\bpp\.", low))
         or (len(letters) > 8 and len(line.split()) <= 5 and sum(c.isupper() for c in letters) / len(letters) > 0.8)  # a SHOUTED banner
     )
+
+
+_AFFILIATION = re.compile(
+    r"@|\b(?:universit\w*|institut\w*|laborator\w*|department|dept\.|faculty|college|school of|cent(?:er|re) for"
+    r"|observatory|academy|e-?mail|corresponding author)\b|\b\d{5}\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_affiliation(line: str) -> bool:
+    """An author's address, not the start of the paper: 'Space Science Laboratory, University of California,
+    Berkeley, CA 94720, USA'."""
+    return bool(_AFFILIATION.search(line))
 
 
 def _mostly_latin(line: str) -> bool:
