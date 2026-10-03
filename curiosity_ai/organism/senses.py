@@ -35,6 +35,7 @@ class Observation:
     kind: Literal["corpus", "inbox", "acquired", "papers", "web"]
     score: float = 0.0
     note: str = ""  # what kind of source this is, when it is not a primary text
+    own: bool = False  # the person's own work (their draft, their notes): their claims, not evidence
 
     @property
     def heading(self) -> str:
@@ -53,6 +54,7 @@ class _Chunk:
     length: int = 0
     tf: Counter = field(default_factory=Counter)
     note: str = ""
+    own: bool = False
 
 
 # How acquired texts are cited and described to the model.
@@ -150,6 +152,9 @@ class LexicalLibrary:
             prefix, note = "DOC", ""
         else:
             prefix, note = ("INBOX", "shared by a human") if kind == "inbox" else ("LOCAL", "")
+        own = kind == "inbox" and str(meta.get("own", "")).strip().lower() in ("yes", "true")
+        if own:
+            note = "the person's own work: their claims, not evidence"
         added = 0
         for idx, (start, end, text) in enumerate(self.chunker.chunk(body)):
             if start > 0 and body[start - 1].isalnum():
@@ -169,6 +174,7 @@ class LexicalLibrary:
                 length=len(terms),
                 tf=Counter(terms),
                 note=note,
+                own=own,
             )
             chunk_id = len(self._chunks)
             self._chunks.append(chunk)
@@ -211,6 +217,7 @@ class LexicalLibrary:
                     kind=chunk.kind,
                     score=score,
                     note=chunk.note,
+                    own=chunk.own,
                 )
             )
             if len(chosen) >= k:
@@ -298,6 +305,7 @@ class Senses:
         web=None,
         passages: int = 5,
         max_per_source: int = 2,
+        max_own: int = 5,
         passage_chars: int = 1100,
         web_results: int = 2,
         web_min_relevance: float = 0.25,
@@ -306,6 +314,7 @@ class Senses:
         self.web = web
         self.passages = passages
         self.max_per_source = max_per_source
+        self.max_own = max_own
         self.passage_chars = passage_chars
         self.web_results = web_results
         self.web_min_relevance = web_min_relevance
@@ -349,6 +358,7 @@ class Senses:
             web=web,
             passages=oc.evidence_passages,
             max_per_source=oc.max_passages_per_source,
+            max_own=oc.research.own_passages,
             passage_chars=oc.passage_chars,
             web_results=oc.max_web_results,
             web_min_relevance=oc.web_min_relevance,
@@ -364,10 +374,14 @@ class Senses:
         many words; searched together with the question they can crowd out the passage the
         question itself points to. So half the passages come from the question alone.
         """
-        found = self.library.search(question, k=self.passages, max_per_source=self.max_per_source)
+        # Ask for a few more than needed: passages of the person's own work beyond max_own make room for others.
+        k = self.passages + 3
+        found = self.library.search(question, k=k, max_per_source=self.max_per_source)
         if expectations:
-            both = self.library.search(" ".join([question, *expectations]), k=self.passages, max_per_source=self.max_per_source)
-            found = _alternate(found, both, k=self.passages, max_per_source=self.max_per_source)
+            both = self.library.search(" ".join([question, *expectations]), k=k, max_per_source=self.max_per_source)
+            found = _alternate(found, both, k=k, max_per_source=self.max_per_source)
+        own = [o for o in found if o.own][: self.max_own]
+        found = [o for o in found if not o.own or o in own][: self.passages]
         if self.web is not None:
             found.extend(self._observe_web(question))
         for i, obs in enumerate(found, start=1):
@@ -427,14 +441,18 @@ def _alternate(first: list[Observation], second: list[Observation], *, k: int, m
     return out
 
 
-def write_inbox_item(inbox_dir: Path, text: str, title: str, when: str) -> Path:
-    """Store something a human shared, in the same front-matter format as the corpus."""
+def write_inbox_item(inbox_dir: Path, text: str, title: str, when: str, *, own: bool = False) -> Path:
+    """Store something a human shared, in the same front-matter format as the corpus.
+
+    ``own`` marks the person's own work (in researcher mode, their draft or notes): it is read as their
+    claims, which the papers may support or not, never as evidence for itself.
+    """
     inbox_dir.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:40] or "observation"
     path = inbox_dir / f"{when[:19].replace(':', '').replace('-', '')}_{slug}_{stable_id(text, length=6)}.md"
     safe_title = title.replace("\n", " ").replace("---", "-")
     path.write_text(
-        f"---\ntitle: {safe_title}\nauthor: Human observer\nyear: {when[:4]}\n---\n\n{text.strip()}\n",
+        f"---\ntitle: {safe_title}\nauthor: Human observer\nyear: {when[:4]}\n" + ("own: yes\n" if own else "") + f"---\n\n{text.strip()}\n",
         encoding="utf-8",
     )
     return path

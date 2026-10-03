@@ -136,7 +136,7 @@ class Anticipation:
 @dataclass
 class Check:
     expectation: int
-    status: str = "not_addressed"  # confirmed | contradicted | not_addressed | unverified
+    status: str = "not_addressed"  # confirmed | contradicted | not_addressed | unverified | own (the person's own claim)
     source: str = ""
     quote: str = ""
     claimed: str = ""  # what the organism itself said, before the judge
@@ -460,11 +460,15 @@ class CuriosityOrganism:
         self.save()
         return q
 
-    def feed(self, text: str, title: str | None = None) -> Path:
-        """Share an observation; it is noticed at the next heartbeat and joins the library."""
+    def feed(self, text: str, title: str | None = None, *, own: bool = False) -> Path:
+        """Share an observation; it is noticed at the next heartbeat and joins the library.
+
+        ``own``: it is the person's own work (in researcher mode, their draft or notes). Its sentences are
+        then their claims, to be tested against the other texts, not evidence for themselves.
+        """
         if not text.strip():
             raise ValueError("Nothing to feed: the observation is empty.")
-        path = write_inbox_item(self.inbox_dir, text, title or one_line(text, 60), utc_now_iso())
+        path = write_inbox_item(self.inbox_dir, text, title or one_line(text, 60), utc_now_iso(), own=own)
         self.state.unread_inbox.append(str(path))
         self.save()
         return path
@@ -748,6 +752,9 @@ class CuriosityOrganism:
     def _verify_comparison(self, data: dict[str, Any], expectations: list[str], observations: list[Observation]) -> Comparison:
         checks: dict[int, Check] = {}
         rejected = 0
+        # The person's own draft cannot confirm or contradict anything: it says what they claim. In a real run
+        # 11 of 12 grounded beliefs quoted the person's own article back to them.
+        own = {o.label for o in observations if o.own} if not self.oc.research.own_work_is_evidence else set()
         for item in _as_list(data.get("checks")):
             if not isinstance(item, dict):
                 continue
@@ -762,6 +769,8 @@ class CuriosityOrganism:
             if quote is None:
                 rejected += 1
                 checks[idx] = Check(idx, "unverified", label)
+            elif label in own:
+                checks[idx] = Check(idx, "own", label, quote)
             else:
                 checks[idx] = Check(idx, status, label, quote)
         for i in range(1, len(expectations) + 1):
@@ -778,6 +787,8 @@ class CuriosityOrganism:
                 continue
             if len(quote.split()) < 8:
                 continue  # "Yes, my boy, outer barbarians." is real, but too short to say anything surprising
+            if label in own:
+                continue  # the person's own claim surprises no one into evidence
             already_used = [c.quote for c in checks.values() if c.quote and c.source == label] + [u["quote"] for u in unexpected]
             if any(overlap(quote, used) >= 0.5 for used in already_used):
                 continue  # the same words cannot be both expected and unexpected
@@ -979,6 +990,8 @@ class CuriosityOrganism:
                 continue  # "X may play a role" is supported by almost any related quote: it stays an interpretation
             obs = by_label.get(item.source or "")
             candidates = quotes.get(item.source or "", []) if obs else []
+            if obs is not None and obs.own and not oc.research.own_work_is_evidence:
+                candidates = []  # the person's own draft cannot ground a belief: it is what is being tested
             if candidates:
                 best = max(candidates, key=lambda quote: overlap(item.belief, quote))
                 if lexically_related(item.belief, best, self.topic_words):
@@ -1611,6 +1624,10 @@ class CuriosityOrganism:
                 obs = by_label.get(c.source)
                 heading = f" {obs.heading}" if obs else ""
                 lines.append(f'- What you expected, {expected(c)}, was {c.status.upper()} by [{c.source}]{heading}: "{c.quote}"')
+        for c in comparison.checks:
+            if c.status == "own":
+                lines.append(f'- What you expected, {expected(c)}, is what the person\'s own draft claims [{c.source}]: '
+                             f'"{c.quote}" (their claim, to be tested against the other texts; it is not evidence)')
         for u in comparison.unexpected:
             obs = by_label.get(u["source"])
             heading = f" {obs.heading}" if obs else ""

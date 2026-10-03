@@ -299,3 +299,51 @@ def test_a_schema_hint_copied_back_is_not_a_meaning(research_config):
 
     org = CuriosityOrganism(research_config, llm=Echo())
     assert org.state.topic.meaning == "" and org.state.topic.title == "Battery aging"
+
+
+# -- the person's own draft: their claims, not evidence ------------------------------------------
+
+DRAFT = (
+    "Plato: philosophy begins in wonder, the feeling of a philosopher. In this draft I argue that wonder is the first "
+    "step of every inquiry, and that curiosity only follows when wonder finds a problem worth pursuing. "
+) * 6
+
+
+def test_the_persons_own_work_is_read_at_most_once_per_heartbeat(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.feed(DRAFT, "My article (draft)", own=True)
+    org.senses.notice_new_material()
+    found = org.senses.observe("Plato says philosophy begins in wonder: what is wonder?")
+    own = [o for o in found if o.own]
+    assert len(own) == 1 and len(found) > 1
+    assert "their claims, not evidence" in own[0].heading
+
+
+def test_the_persons_draft_is_a_claim_to_test_not_evidence(config):
+    llm = ScriptedLLM(stance="DEFEND")
+    org = CuriosityOrganism(config, llm=llm)
+    org.feed(DRAFT, "My article (draft)", own=True)
+    ep = org.heartbeat()
+    first = ep.checks[0]
+    assert first["status"] == "own" and "wonder" in first["quote"].lower()
+    q = org.state.questions[ep.question_id]
+    assert q.visits[-1].support == 0  # the draft confirmed nothing
+    assert all("draft" not in e.source_title for e in q.support)
+    assert "your draft says so (your claim, not evidence)" in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert "the person's own draft claims" in llm.prompts["SETTLE"]
+
+
+def test_the_map_sets_the_drafts_claims_against_the_other_texts(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND"))
+    org.feed(DRAFT, "My article (draft)", own=True)
+    org.heartbeat()
+    text = render_research_map(org)
+    assert "## Your draft's claims it met, and what the other texts say" in text
+    assert "philosophy begins in wonder" in text.lower()
+
+
+def test_what_a_person_shares_in_philosophy_mode_is_still_evidence(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    path = org.feed("Wonder is the feeling of a philosopher, said my teacher.", "A note")
+    assert "own:" not in path.read_text(encoding="utf-8")
+

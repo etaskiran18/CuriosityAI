@@ -9,6 +9,8 @@ what the organism has, with every claim traceable to a quote:
 * hypotheses: answers it holds with some confidence, what would refute them,
   the grounded beliefs they rest on, and predictions the texts contradicted;
 * surprises: predictions the texts contradicted (the judge agreeing);
+* the person's own draft: its claims the organism met, and which other texts
+  say something similar or the opposite (the draft is never evidence for itself);
 * possible gaps: questions its texts kept silent about, even after looking
   elsewhere. Silence in its library is not proof that nobody has studied
   something, but it is where to look;
@@ -24,7 +26,7 @@ from typing import TYPE_CHECKING
 from ..schema import utc_now_iso
 from ..utils import read_jsonl
 from .state import Episode
-from .textutil import one_line
+from .textutil import lexically_related, one_line
 
 if TYPE_CHECKING:
     from .organism import CuriosityOrganism
@@ -107,6 +109,7 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
         for c in e.checks
         if c.get("status") == "contradicted" and 1 <= c.get("expectation", 0) <= len(e.expectations)
     ]
+    lines += _draft_section(episodes, organism)
     lines += ["## Surprises: what the texts contradicted", ""]
     if surprises:
         for e, qid, expected, c in surprises[-12:]:
@@ -177,3 +180,37 @@ def _heading(e: Episode, label: str) -> str:
 
 def _cell(text: str, limit: int) -> str:
     return one_line(text or "", limit).replace("|", "/")
+
+
+def _draft_section(episodes: list[Episode], organism: "CuriosityOrganism") -> list[str]:
+    """The person's own claims it met, each with the other texts that say something similar or the opposite.
+
+    Matching is by shared words (with the topic's own words left out), so it points to where to look; the
+    agreeing and disagreeing quotes are ones the judge accepted for a prediction.
+    """
+    claims: dict[str, tuple[int, str, str]] = {}
+    evidence: list[tuple[str, str, str, int]] = []  # (quote, status, source, heartbeat)
+    for e in episodes:
+        sources = {s.split("]", 1)[0].lstrip("["): s.split("]", 1)[-1].strip() for s in e.sources}
+        for c in e.checks:
+            quote = c.get("quote") or ""
+            if not quote:
+                continue
+            if c.get("status") == "own":
+                claims.setdefault(" ".join(quote.lower().split()), (e.heartbeat, e.question_id, quote))
+            elif c.get("status") in ("confirmed", "contradicted"):
+                evidence.append((quote, c["status"], sources.get(c.get("source", ""), ""), e.heartbeat))
+    if not claims:
+        return []
+    lines = ["## Your draft's claims it met, and what the other texts say", "",
+             "*Your draft is never evidence for itself: these are your claims, set against what the other texts said.*", ""]
+    for heartbeat, qid, quote in sorted(claims.values())[:15]:
+        lines.append(f'- "{one_line(quote, 220)}" (heartbeat {heartbeat}, {qid})')
+        related = [ev for ev in evidence if lexically_related(quote, ev[0], organism.topic_words)]
+        for text, status, source, hb in related[:3]:
+            word = "says something similar" if status == "confirmed" else "says the opposite"
+            lines.append(f'  - {source} {word}: "{one_line(text, 200)}" (heartbeat {hb})')
+        if not related:
+            lines.append("  - no other text it read says this yet")
+    return lines + [""]
+

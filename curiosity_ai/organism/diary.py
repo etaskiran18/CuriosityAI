@@ -27,6 +27,8 @@ def _check_line(c: dict) -> str:
         return f"- E{c.get('expectation')}: I said {claimed}, but the judge did not check it, so it is not counted{quote}"
     if judge in ("supports", "contradicts") and claimed in ("confirmed", "contradicted") and claimed != status:
         return f"- E{c.get('expectation')}: I said {claimed}; the judge read it as {_STATUS_MARK.get(status, status)}{quote}"
+    if status == "own":
+        return f"- E{c.get('expectation')}: your draft says so (your claim, not evidence){quote}"
     mark = _STATUS_MARK.get(status, status)
     if judge in ("supports", "contradicts"):
         mark += " (the judge agrees)"

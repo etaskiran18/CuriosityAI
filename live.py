@@ -552,7 +552,7 @@ def main() -> int:
         if not text.strip():
             console.print(f"[red]No text found in {escape(str(feed_path))} (a scanned PDF needs OCR first).[/red]")
             return 1
-        path = organism.feed(text, title)
+        path = organism.feed(text, title, own=organism.research)  # in researcher mode: your own work, a claim to test
         console.print(f"Shared with it: {escape(str(path))} (it will be noticed at the next heartbeat)")
 
     if args.status:

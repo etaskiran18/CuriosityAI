@@ -179,6 +179,7 @@ def compute_metrics(
         "beliefs_interpretive": sum(len(e.new_belief_ids) - e.grounded_new_beliefs for e in episodes),
         "beliefs_doubted": sum(len(e.doubted_belief_ids) for e in episodes),
         "paper_doubts": sum(len(e.paper_doubt_ids) for e in episodes),
+        "own_claims_met": sum(1 for e in episodes for c in e.checks if c.get("status") == "own"),
         "beliefs_reinforced": sum(len(e.reinforced_belief_ids) for e in episodes),
         "quotes_verified": verified,
         "quotes_rejected": rejected,
@@ -293,6 +294,9 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"{m['library_rejected']} found but off topic; {m['library_busy']} searches impossible because a source was busy.",
         f"- **Self-regulation:** {_counts({DIAGNOSES.get(k, {}).get('name', k): v for k, v in m['diagnoses'].items()}) or 'no reflection in this session'}.",
     ]
+    if m.get("own_claims_met"):
+        lines.append(f"- **Your draft:** its claims came up {m['own_claims_met']} times; they never count as evidence for "
+                     "themselves (the research map sets them against what the other texts say).")
     if "exam_after" in m or "exam_before" in m:
         took = f"{m['exam_before']:.0%} (grounded {m['exam_grounded_before']:.0%})" if "exam_before" in m else "not taken"
         then = f"{m['exam_after']:.0%} (grounded {m['exam_grounded_after']:.0%})" if "exam_after" in m else "not taken"

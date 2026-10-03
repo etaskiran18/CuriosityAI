@@ -242,6 +242,8 @@ class ResearchConfig(BaseModel):
     topic: str = ""             # set by --topic; a new life is then born as a researcher on this topic
     papers_dir: str = ""        # your PDFs, .txt or .md papers
     own_article: str = ""       # set by --feed-file: a new life reads its beginning first, to learn what the topic means
+    own_passages: int = 1       # at most this many passages of the person's own work per heartbeat; the rest are other texts
+    own_work_is_evidence: bool = False  # the person's draft and notes are claims to test, not evidence for themselves
     until_year: int | None = None  # read only papers published up to this year (time-split tests)
     seed_questions: int = 5     # how many first questions it writes for itself
     max_pdf_pages: int = 300
