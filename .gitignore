@@ -5,3 +5,7 @@ __pycache__/
 venv/
 .env
 memory/**/library/.cache/
+
+# Researcher mode: your papers (converted to text) and research lives stay private
+memory/research/
+memory/**/papers/

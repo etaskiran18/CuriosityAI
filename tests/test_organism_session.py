@@ -37,7 +37,8 @@ def test_a_session_writes_a_report_metrics_and_config(config):
     org = CuriosityOrganism(config, llm=ScriptedLLM(contradict_for_real=True))
     report = org.run_session(3, label="first try")
     assert report.directory.name.endswith("-first-try")
-    assert {p.name for p in report.directory.iterdir()} == {"report.md", "metrics.json", "config.json"}
+    assert {p.name for p in report.directory.iterdir()} == {"report.md", "metrics.json", "config.json", "judge_check.csv"}
+    assert (org.home / "research_map.md").exists()
     m = json.loads((report.directory / "metrics.json").read_text(encoding="utf-8"))
     assert m["heartbeats"] == 3 and m["policy"] == "curiosity" and m["web"] is False
     assert m["beliefs_grounded"] <= m["beliefs_new"]
@@ -109,7 +110,9 @@ def test_random_policy_is_reproducible_with_a_seed(config):
 
 
 def test_it_does_not_start_a_heartbeat_it_cannot_finish(config):
-    org, t = timed_organism(config, ScriptedLLM(), seconds_per_thought=10)  # six thoughts: 60 s per heartbeat
-    report = org.run_session(minutes=2.5)  # 150 s: room for two heartbeats, not a third
+    # Nine thoughts per heartbeat (predict, compare, judge, three voices, settle, judge the beliefs,
+    # rate the new question): 90 s each.
+    org, t = timed_organism(config, ScriptedLLM(), seconds_per_thought=10)
+    report = org.run_session(minutes=3.25)  # 195 s: room for two heartbeats, not a third
     assert report.metrics["heartbeats"] == 2
-    assert t.now <= 150
+    assert t.now <= 195

@@ -102,13 +102,26 @@ It rests by itself to keep the laptop cool (see "Taking care of the computer" in
 ## 9. A 1-hour test with web search
 
 ```bash
-python live.py --check --web                     # are Wikipedia and Project Gutenberg reachable?
-python live.py --minutes 60 --web --label first-hour
+python live.py --check --web                     # are Wikipedia, Gutenberg, Semantic Scholar and arXiv reachable?
+python live.py --new-life --minutes 60 --web --exam --label v9-first-hour
 ```
 
+* `--new-life` archives the old life (after updating to v9, start fresh: the old beliefs were graded
+  by the old, more lenient rules). Leave it out to continue the same life.
+* `--exam` gives the exam before and after the hour (it does not count toward the 60 minutes).
+
 After an hour it stops by itself and writes a report to `memory/organism/sessions/<id>/report.md`
-(open it with `explorer.exe memory/organism/sessions`). Ctrl+C stops earlier and still writes the
-report. For experiments, see [RESEARCH.md](RESEARCH.md).
+(open it with `explorer.exe memory/organism/sessions`) and `memory/organism/research_map.md`. Ctrl+C
+stops earlier and still writes the report. Then check the judge by hand: open `judge_check.csv` in the
+session folder, fill in the last column, and run `python scripts/judge_agreement.py <that file>`. For
+experiments, see [RESEARCH.md](RESEARCH.md).
+
+**Semantic Scholar key (free, optional).** Without a key the paper search is often busy. Request one at
+semanticscholar.org/product/api, then put it in a file named `.env` in the project folder:
+
+```bash
+echo "SEMANTIC_SCHOLAR_API_KEY=your-key-here" >> .env
+```
 
 ## 10. More books
 
@@ -117,7 +130,17 @@ python live.py --add-book "Augustine Confessions" --add-book "Hobbes Leviathan"
 python scripts/download_real_corpus.py           # everything listed in data/real_corpus_manifest.json
 ```
 
-To get new versions of the code later: `cd ~/CuriosityAI && git pull`.
+To get new versions of the code later: `cd ~/CuriosityAI && git pull && pip install -r requirements.txt`.
+
+## 11. Researcher mode: your own topic
+
+```bash
+mkdir -p ~/papers/my-topic          # put your PDFs here (from Windows: explorer.exe ~/papers/my-topic)
+python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/my-topic --minutes 60 --web
+```
+
+It lives in `memory/research/<topic>/`. Its main result is `research_map.md` there. See
+[RESEARCHER.md](RESEARCHER.md).
 
 ## If something goes wrong
 
@@ -127,5 +150,6 @@ To get new versions of the code later: `cd ~/CuriosityAI && git pull`.
 | `Ollama: not reachable` in `--check` | run `ollama serve` in a second terminal |
 | `Model ... is not installed` | `ollama pull mistral:7b-instruct` |
 | `GPU use: ... CPU only` | check `nvidia-smi` (step 3), then restart: `wsl --shutdown` in PowerShell |
-| `pip install` fails on `chromadb` | only v7's `run.py` needs it: `pip install requests PyYAML pydantic python-dotenv rich pytest` is enough for `live.py` |
+| `pip install` fails on `chromadb` | only v7's `run.py` needs it: `pip install requests PyYAML pydantic python-dotenv rich pytest pypdf` is enough for `live.py` |
+| A PDF is reported as "no text found" | it is a scan (pictures of pages); run OCR on it first, or add a text version |
 | The laptop gets hot or loud | lower `max_gpu_temp_c` or `work_minutes` under `organism: body:` in `config.yaml` |

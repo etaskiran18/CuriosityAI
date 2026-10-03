@@ -165,7 +165,16 @@ def test_unsupported_lessons_do_not_count_as_progress():
 
     talk = [ep(f"Q{i}", new_belief_ids=["B1"], new_question_ids=[f"Q{i + 10}"], prediction_error=0.3) for i in range(4)]
     assert compute_vitals(talk).progress_rate == 0.0
-    real = [ep("Q1", new_belief_ids=["B1"], grounded_new_beliefs=1), ep("Q2", doubted_belief_ids=["B2"]),
-            Episode(heartbeat=3, question_id="Q3", question="Q3", prior_confidence=0.3, confidence=0.5), ep("Q4")]
+    real = [ep("Q1", new_belief_ids=["B1"], grounded_new_beliefs=1), ep("Q2", doubted_belief_ids=["B2"], contradicted=1),
+            Episode(heartbeat=3, question_id="Q3", question="Q3", prior_confidence=0.3, confidence=0.5, support=1), ep("Q4")]
     assert compute_vitals(real).progress_rate == 0.75
     assert diagnose(compute_vitals(talk)) == "restless_curiositas"
+
+
+def test_a_change_of_mind_without_evidence_is_not_progress():
+    """A confidence bump or a doubt the judge saw no evidence for is what a language model does anyway."""
+    moved = Episode(heartbeat=1, question_id="Q1", question="Q1", prior_confidence=0.3, confidence=0.55)
+    doubted = Episode(heartbeat=2, question_id="Q2", question="Q2", prior_confidence=0.4, confidence=0.4, doubted_belief_ids=["B2"])
+    assert compute_vitals([moved, doubted]).progress_rate == 0.0
+    moved.support = 1
+    assert compute_vitals([moved, doubted]).progress_rate == 0.5

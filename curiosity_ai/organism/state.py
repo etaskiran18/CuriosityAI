@@ -35,9 +35,9 @@ class Visit(BaseModel):
     heartbeat: int
     confidence_before: float
     confidence_after: float
-    prediction_error: float  # surprise: share of my expectations the texts went against
+    prediction_error: float  # surprise: how wrong my predictions were (Brier score), over all of them
     informativeness: float  # share of my expectations the texts addressed at all
-    support: int = 0  # expectations confirmed by a verified quote
+    support: int = 0  # expectations confirmed by a verified quote the judge accepted
 
 
 class Question(BaseModel):
@@ -58,6 +58,9 @@ class Question(BaseModel):
     last_visited: int | None = None
     last_library_visit: int | None = None
     related_beliefs: list[str] = Field(default_factory=list)
+    # How directly the question serves the main topic (0 off topic .. 1 central).
+    # None: not rated yet; it is then estimated from the topic's words.
+    relevance: float | None = None
 
     @property
     def active_visits(self) -> list[Visit]:
@@ -96,6 +99,8 @@ class Temperament(BaseModel):
     importance: float = 0.15
     boredom_patience: int = 3
     exploration_temperature: float = 0.15
+    # How strongly questions far from the main topic lose their pull (0 = not at all).
+    topic_anchor: float = 0.6
 
     def weights(self) -> dict[str, float]:
         return {
@@ -112,9 +117,21 @@ class SelfModel(BaseModel):
         "Curiosity is the felt pull of a gap between what I know and what I could know. "
         "I do not yet understand it; I intend to find out by practicing it."
     )
+    understanding_of_topic: str = ""  # researcher mode: what it now thinks about its research topic
     last_reflection: str = ""
     diagnosis: str = "healthy_wonder"
     reflections: list[str] = Field(default_factory=list)
+
+
+class Topic(BaseModel):
+    """What this life is about. A philosophy organism studies curiosity itself;
+    in researcher mode it studies a topic a person gave it."""
+
+    mode: Literal["philosophy", "research"] = "philosophy"
+    title: str = "the philosophy of curiosity"
+    description: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    until_year: int | None = None  # researcher mode: read only papers published up to this year
 
 
 class Episode(BaseModel):
@@ -129,14 +146,24 @@ class Episode(BaseModel):
     prior_answer: str = ""
     prior_confidence: float = 0.0
     expectations: list[str] = Field(default_factory=list)
+    # The same expectations with who was expected to say it, the probability given, and
+    # whether the wording was hedged ("may", "might"), which makes a prediction unfalsifiable.
+    predictions: list[dict[str, Any]] = Field(default_factory=list)
     checks: list[dict[str, Any]] = Field(default_factory=list)
     unexpected: list[dict[str, Any]] = Field(default_factory=list)
     rejected_quotes: int = 0
     sources: list[str] = Field(default_factory=list)
     prediction_error: float = 0.0
     informativeness: float = 0.0
+    brier: float | None = None  # mean Brier score of the predictions the texts addressed (0 = perfect)
+    support: int = 0  # expectations confirmed, as accepted by the judge
+    contradicted: int = 0  # expectations contradicted, as accepted by the judge
+    judgments: list[dict[str, Any]] = Field(default_factory=list)  # every claim/quote pair the judge saw
     dialogue: list[dict[str, str]] = Field(default_factory=list)
+    stance: str = ""  # how Wonder answered the skeptic: defend, revise or concede
     answer: str = ""
+    falsifier: str = ""  # what would show the answer wrong
+    vague: bool = False  # the answer was too vague to be wrong, so confidence could not rise
     confidence: float = 0.0
     insight: str = ""
     new_belief_ids: list[str] = Field(default_factory=list)
@@ -145,11 +172,15 @@ class Episode(BaseModel):
     doubted_belief_ids: list[str] = Field(default_factory=list)
     new_question_ids: list[str] = Field(default_factory=list)
     reawakened_question_ids: list[str] = Field(default_factory=list)
+    set_aside_questions: list[str] = Field(default_factory=list)  # proposed, but off the topic
+    relevance: float = 1.0  # how on topic the question of this heartbeat was
     status_after: str = "open"
     policy: str = "curiosity"
     acquisitions: list[str] = Field(default_factory=list)  # what it fetched from the library this heartbeat
     library_misses: list[str] = Field(default_factory=list)  # what it looked for but did not find
     library_owned: list[str] = Field(default_factory=list)  # what it wished for but already had
+    library_busy: list[str] = Field(default_factory=list)  # could not look: the source was busy or unreachable
+    library_rejected: list[str] = Field(default_factory=list)  # found, but off the topic, so not kept
     errors: list[str] = Field(default_factory=list)
 
 
@@ -164,6 +195,7 @@ class MindState(BaseModel):
     beliefs: dict[str, Belief] = Field(default_factory=dict)
     temperament: Temperament = Field(default_factory=Temperament)
     self_model: SelfModel = Field(default_factory=SelfModel)
+    topic: Topic = Field(default_factory=Topic)
     recent_episodes: list[Episode] = Field(default_factory=list)
     unread_inbox: list[str] = Field(default_factory=list)
     vitals_history: list[dict[str, Any]] = Field(default_factory=list)

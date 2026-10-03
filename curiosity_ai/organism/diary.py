@@ -14,6 +14,24 @@ _STATUS_MARK = {
     "unverified": "claimed, but the quote was not found in the source (discarded)",
 }
 
+_JUDGE_SAID = {"supports": "supports", "contradicts": "contradicts", "neither": "neither"}
+
+
+def _check_line(c: dict) -> str:
+    """One expectation's fate, with what the organism claimed and what the blind judge decided."""
+    status, claimed, judge = c.get("status", ""), c.get("claimed", ""), c.get("judge", "")
+    quote = f' - [{c.get("source")}] "{one_line(c.get("quote", ""), 220)}"' if c.get("quote") and status != "unverified" else ""
+    if judge == "neither" and claimed in ("confirmed", "contradicted"):
+        return f"- E{c.get('expectation')}: I said {claimed}, but the judge found the quote beside the point (not counted){quote}"
+    if judge in ("supports", "contradicts") and claimed in ("confirmed", "contradicted") and claimed != status:
+        return f"- E{c.get('expectation')}: I said {claimed}; the judge read it as {_STATUS_MARK.get(status, status)}{quote}"
+    mark = _STATUS_MARK.get(status, status)
+    if judge in ("supports", "contradicts"):
+        mark += " (the judge agrees)"
+    elif judge == "unjudged":
+        mark += " (the judge could not check it)"
+    return f"- E{c.get('expectation')}: {mark}{quote}"
+
 
 class Diary:
     def __init__(self, path: Path):
@@ -47,40 +65,54 @@ class Diary:
                 f"*Why this one:* curiosity {d.get('total', 0):.2f} = gap {d.get('gap', 0):.2f} "
                 f"(anchoring {d.get('anchoring', 0):.2f}), learning progress {d.get('learning_progress', 0):.2f}, "
                 f"surprise {d.get('surprise', 0):.2f}, novelty {d.get('novelty', 0):.2f}, "
-                f"importance {d.get('importance', 0):.2f}, boredom {d.get('boredom', 0):.2f}"
+                f"importance {d.get('importance', 0):.2f}, boredom {d.get('boredom', 0):.2f}, "
+                f"on topic {d.get('relevance', 1):.2f}"
             ),
         ]
         if len(ranking) > 1:
             others = ", ".join(f"{qid} {score:.2f}" for qid, score in ranking[1:4])
             lines.append(f"*Other pulls:* {others}")
         lines += ["", f"**Before looking** (confidence {ep.prior_confidence:.2f}): {ep.prior_answer or 'I had no answer yet.'}"]
-        if ep.expectations:
+        if ep.predictions:
+            lines.append("")
+            for i, pr in enumerate(ep.predictions, start=1):
+                who = f"{pr.get('author')}: " if pr.get("author") and pr.get("author", "").lower() not in pr.get("claim", "").lower() else ""
+                hedge = " *(hedged: it could never be wrong)*" if pr.get("hedged") else ""
+                lines.append(f"- E{i} I predicted (p={pr.get('probability', 0):.2f}): {who}{pr.get('claim', '')}{hedge}")
+        elif ep.expectations:
             lines.append("")
             lines += [f"- E{i} I expected: {e}" for i, e in enumerate(ep.expectations, start=1)]
         lines += ["", "**What I read:** " + ("; ".join(ep.sources) if ep.sources else "nothing relevant was found.")]
         if ep.checks:
             lines.append("")
-            for c in ep.checks:
-                mark = _STATUS_MARK.get(c.get("status", ""), c.get("status", ""))
-                quote = f' - [{c.get("source")}] "{one_line(c.get("quote", ""), 220)}"' if c.get("quote") and c.get("status") != "unverified" else ""
-                lines.append(f"- E{c.get('expectation')}: {mark}{quote}")
+            lines += [_check_line(c) for c in ep.checks]
         for u in ep.unexpected:
             lines.append(f'- Unexpected: {u.get("finding", "")} - [{u.get("source")}] "{one_line(u.get("quote", ""), 220)}"')
+        dropped = [j for j in ep.judgments if j.get("kind") == "finding" and j.get("judge") in ("neither", "contradicts")]
+        if dropped:
+            lines.append(f"- The judge did not accept {len(dropped)} 'unexpected' finding(s): the quote did not say it.")
+        brier = f" - **Brier score** {ep.brier:.2f}" if ep.brier is not None else ""
         lines += [
             "",
-            f"**Surprise** {ep.prediction_error:.2f} - **informativeness** {ep.informativeness:.2f}"
+            f"**Surprise** {ep.prediction_error:.2f} - **informativeness** {ep.informativeness:.2f}{brier}"
             + (f" - {ep.rejected_quotes} unverifiable quote(s) discarded" if ep.rejected_quotes else ""),
         ]
         if ep.dialogue:
             lines += ["", "**Inner dialogue**", ""]
             for turn in ep.dialogue:
-                lines.append(f"> **{turn['voice']}:** {one_line(turn['text'], 1200)}")
+                stance = f" ({turn['stance']}s)" if turn.get("stance") else ""
+                evidence = " *(quoting the text)*" if turn.get("evidence") == "quote" else ""
+                lines.append(f"> **{turn['voice']}{stance}:**{evidence} {one_line(turn['text'], 1200)}")
                 lines.append(">")
             lines.pop()
         lines += [
             "",
             f"**Now I think** (confidence {ep.prior_confidence:.2f} -> {ep.confidence:.2f}): {ep.answer}",
         ]
+        if ep.falsifier:
+            lines.append(f"*I would be wrong if:* {ep.falsifier}")
+        if ep.vague:
+            lines.append("*My answer is too vague to be wrong, so I may not grow surer of it.*")
         if ep.insight:
             lines.append(f"*Insight:* {ep.insight}")
         for bid in ep.new_belief_ids:
@@ -104,12 +136,18 @@ class Diary:
             nq = state.questions.get(qid)
             if nq:
                 lines.append(f"- Reawakened **{qid}**: {nq.text}")
+        for text in ep.set_aside_questions:
+            lines.append(f"- Set aside as off my topic: {text}")
         if ep.acquisitions:
             lines.append(f"- My books said little here, so I went to the library and brought back: {'; '.join(ep.acquisitions)}")
         if ep.library_misses:
             lines.append(f"- I looked for, but did not find: {'; '.join(ep.library_misses)}")
         if ep.library_owned:
             lines.append(f"- I wished for, but already had: {'; '.join(ep.library_owned)}")
+        if ep.library_rejected:
+            lines.append(f"- I found, but did not keep (off my topic): {'; '.join(ep.library_rejected)}")
+        if ep.library_busy:
+            lines.append(f"- I could not look, the source was busy: {'; '.join(ep.library_busy)}")
         if ep.status_after != "open":
             lines.append(f"- {ep.question_id} is now **{ep.status_after}**" + (f": {q.status_reason}" if q and q.status_reason else ""))
         if ep.errors:
@@ -130,7 +168,21 @@ class Diary:
         verb = "asked me something I was already wondering about" if reused else "asked me"
         self._append(f"## A human {verb}\n\n- **{question_id}** {text}")
 
-    def reflection(self, heartbeat: int, vitals: dict, diagnosis: dict, changes: list[str], text: str, understanding: str, focus: str | None, woke: list[str], rested: list[str]) -> None:
+    def reflection(
+        self,
+        heartbeat: int,
+        vitals: dict,
+        diagnosis: dict,
+        changes: list[str],
+        text: str,
+        understanding: str,
+        focus: str | None,
+        woke: list[str],
+        rested: list[str],
+        *,
+        theory_label: str = "curiosity itself",
+        too_vague: str = "",
+    ) -> None:
         lines = [
             f"## Reflection after heartbeat {heartbeat} - {utc_now_iso()[:16].replace('T', ' ')}",
             "",
@@ -143,7 +195,10 @@ class Diary:
         if text:
             lines += ["", text]
         if understanding:
-            lines += ["", f"**What I now think curiosity is:** {understanding}"]
+            label = "What I now think curiosity is" if theory_label == "curiosity itself" else "What I now think about my topic"
+            lines += ["", f"**{label}:** {understanding}"]
+        if too_vague:
+            lines += ["", f"*I tried to restate my theory, but it was too vague to be wrong, so I kept the old one:* {one_line(too_vague, 400)}"]
         if focus:
             lines.append(f"**I want to pursue next:** {focus}")
         if woke:

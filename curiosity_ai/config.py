@@ -202,6 +202,48 @@ class TemperamentConfig(BaseModel):
     importance: float = 0.15
     boredom_patience: int = 3
     exploration_temperature: float = 0.15
+    topic_anchor: float = 0.6  # how much questions far from the main topic lose their pull (0 = none)
+
+
+class JudgeConfig(BaseModel):
+    """A separate, blind check of every claim the organism makes about a quote (organism/judge.py).
+
+    The judge sees only a claim and a quote, never the organism's reasoning or
+    verdict. Leave model empty to use the main model; on a bigger machine a
+    larger judge model makes the measurements more trustworthy.
+    """
+    enabled: bool = True
+    model: str = ""        # e.g. qwen2.5:14b; empty = the main model
+    base_url: str = ""     # empty = the main model's server
+    temperature: float = 0.0
+    max_tokens: int = 500
+
+
+class TopicConfig(BaseModel):
+    """What a philosophy life studies. Researcher mode replaces this with the person's topic."""
+    title: str = "the philosophy of curiosity"
+    description: str = (
+        "What curiosity is; how it begins (wonder, doubt, the awareness of not knowing) and how it ends "
+        "(answers, boredom); when it is a virtue and when a vice; and how it drives inquiry, "
+        "as discussed by philosophers and psychologists."
+    )
+    keywords: list[str] = Field(default_factory=lambda: [
+        "curiosity", "curious", "wonder", "doubt", "inquiry", "question", "ignorance", "knowledge", "know",
+        "perplexity", "aporia", "interest", "attention", "novelty", "surprise", "understanding", "truth",
+        "belief", "opinion", "desire", "wisdom", "philosophy", "philosopher", "vice", "virtue", "boredom",
+        "skepticism", "reason", "mind",
+    ])
+    # A new question rated below this (0..1) by the judge is set aside as off topic.
+    min_relevance: float = 0.3
+
+
+class ResearchConfig(BaseModel):
+    """Researcher mode: live.py --topic "..." --papers <folder> (see docs/RESEARCHER.md)."""
+    topic: str = ""             # set by --topic; a new life is then born as a researcher on this topic
+    papers_dir: str = ""        # your PDFs, .txt or .md papers
+    until_year: int | None = None  # read only papers published up to this year (time-split tests)
+    seed_questions: int = 5     # how many first questions it writes for itself
+    max_pdf_pages: int = 300
 
 
 class BodyConfig(BaseModel):
@@ -226,17 +268,21 @@ class BodyConfig(BaseModel):
 class LibrarianConfig(BaseModel):
     """Growing the library from the internet (see organism/librarian.py)."""
     enabled: bool = False                # live.py --web turns it on
-    sources: list[str] = Field(default_factory=lambda: ["wikipedia", "gutenberg", "semantic_scholar"])
+    sources: list[str] = Field(default_factory=lambda: ["wikipedia", "gutenberg", "semantic_scholar", "arxiv"])
     hunger_informativeness: float = 0.34 # a visit where the texts said this little sends it to the library
     cooldown_heartbeats: int = 4         # do not go back for the same question too soon
-    max_articles_per_run: int = 12       # Wikipedia articles
-    max_books_per_run: int = 3           # whole books from Project Gutenberg
-    max_papers_per_run: int = 8          # paper abstracts from Semantic Scholar
+    max_articles_per_hour: int = 12      # Wikipedia articles
+    max_books_per_hour: int = 2          # whole books from Project Gutenberg
+    max_papers_per_hour: int = 10        # paper abstracts (Semantic Scholar, arXiv)
+    # A text is kept only if it shares at least this many words with the question and the
+    # topic, beyond the words searched for ("Curiosity" the Mars rover shares only its name).
+    min_relevance_words: int = 2
     max_book_chars: int = 2_500_000
     catalog_max_age_days: int = 30       # refresh Project Gutenberg's catalogue after this
     gutenberg_mirror: str = "https://aleph.pglaf.org"  # Gutenberg asks programs to use mirrors
     timeout_seconds: float = 45
     min_request_interval_seconds: float = 1.0
+    arxiv_interval_seconds: float = 3.0  # arXiv asks for at most one request every three seconds
     semantic_scholar_api_key_env: str = "SEMANTIC_SCHOLAR_API_KEY"
     # Sent in the User-Agent, as Wikimedia and Gutenberg ask of programs. You may add your email.
     contact: str = "https://github.com/etaskiran18/CuriosityAI"
@@ -277,9 +323,17 @@ class OrganismConfig(BaseModel):
     evidence_ceiling_per_support: float = 0.1
     settle_confidence: float = 0.8
     settle_max_error: float = 0.2
-    max_open_questions: int = 40
-    max_new_questions_per_heartbeat: int = 3
-    dedupe_similarity: float = 0.55
+    max_open_questions: int = 25
+    # One new question per heartbeat at most: depth before breadth.
+    max_new_questions_per_heartbeat: int = 1
+    dedupe_similarity: float = 0.45
+    # Ask once more when predictions are hedged ("may", "might"): they could never be wrong.
+    prediction_retry: bool = True
+    default_probability: float = 0.7  # when a prediction comes without one
+    # An answer leaning on this many non-committal phrases ("complex", "multifaceted",
+    # "various factors") is too vague to be wrong, so its confidence cannot rise.
+    vague_threshold: int = 2
+    exam_path: str = "data/exams/philosophy_of_curiosity.json"
     lp_window: int = 4
     lp_prior: float = 0.6
     surprise_decay: float = 0.85
@@ -295,6 +349,9 @@ class OrganismConfig(BaseModel):
     temperament: TemperamentConfig = Field(default_factory=TemperamentConfig)
     body: BodyConfig = Field(default_factory=BodyConfig)
     librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
+    judge: JudgeConfig = Field(default_factory=JudgeConfig)
+    topic: TopicConfig = Field(default_factory=TopicConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
     # How the next question is chosen: curiosity (the drive), random, or novelty (least visited).
     # The last two are baselines for experiments.
     policy: str = "curiosity"

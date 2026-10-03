@@ -16,6 +16,8 @@ from pathlib import Path
 ROWS = [
     ("policy", "policy"),
     ("model", "model"),
+    ("judge_model", "judge model"),
+    ("mode", "mode"),
     ("web", "web library"),
     ("minutes", "minutes"),
     ("heartbeats", "heartbeats"),
@@ -37,7 +39,28 @@ ROWS = [
     ("mean_confidence_change", "mean confidence change"),
     ("revisited_questions", "questions revisited"),
     ("surprise_change_on_revisits", "surprise change on revisits"),
+    ("predictions", "predictions made"),
+    ("hedged_rate", "predictions hedged"),
+    ("predictions_confirmed", "predictions confirmed"),
+    ("predictions_contradicted", "predictions contradicted"),
+    ("mean_brier", "mean Brier score (lower is better)"),
+    ("brier_first_half", "Brier, first half"),
+    ("brier_second_half", "Brier, second half"),
+    ("judge_pairs", "claim/quote pairs judged"),
+    ("judge_agreement", "judge agreed with the organism"),
+    ("judge_rejected", "quotes the judge rejected"),
+    ("concession_rate", "debates conceded"),
+    ("skeptic_quoted_rate", "debates where the skeptic quoted a text"),
+    ("vague_answers", "answers too vague to be wrong"),
+    ("mean_on_topic", "closeness to the topic"),
+    ("questions_set_aside", "questions set aside (off topic)"),
     ("acquisitions", "texts acquired"),
+    ("library_rejected", "texts found but off topic"),
+    ("library_busy", "searches blocked by a busy source"),
+    ("exam_before", "exam before"),
+    ("exam_after", "exam after"),
+    ("exam_gain", "exam gain"),
+    ("exam_grounded_after", "grounded exam score after"),
     ("failed_heartbeats", "failed heartbeats"),
 ]
 
@@ -67,6 +90,8 @@ def main() -> None:
     rows.append(("questions born per hour", [per_hour(m, "questions_born") for m in sessions]))
 
     def cell(value) -> str:
+        if value is None:
+            return ""
         return f"{value:.3g}" if isinstance(value, float) else str(value)
 
     print("| metric | " + " | ".join(names) + " |")

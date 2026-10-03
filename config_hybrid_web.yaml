@@ -210,7 +210,8 @@ organism:
   dialogue_turns: 3             # Wonder -> Skeptic -> Wonder
   heartbeats_per_run: 5
   reflect_every: 5              # self-reflection and self-regulation rhythm
-  max_open_questions: 40
+  max_open_questions: 25        # fewer open questions, more depth
+  max_new_questions_per_heartbeat: 1  # depth before breadth
   max_confidence_step: 0.25     # confidence can only change gradually...
   settle_confidence: 0.8        # ...and a question settles when confident and no longer surprised
   homeostasis: true             # let the organism adjust its own temperament
@@ -223,16 +224,25 @@ organism:
     importance: 0.15            # how much the question matters (Hume)
     boredom_patience: 3         # visits without progress before boredom sets in
     exploration_temperature: 0.15
+    topic_anchor: 0.6           # questions far from the main topic lose up to this share of their pull
   policy: curiosity             # how it chooses questions: curiosity | random | novelty (baselines for experiments)
   librarian:                    # growing its own library from the internet (python live.py --web)
     enabled: false              # --web turns this on
-    sources: [wikipedia, gutenberg, semantic_scholar]
+    sources: [wikipedia, gutenberg, semantic_scholar, arxiv]
     hunger_informativeness: 0.34  # when the texts address this little of its expectations, it looks elsewhere
     cooldown_heartbeats: 4      # not again for the same question within this many heartbeats
-    max_articles_per_run: 12    # Wikipedia articles per run
-    max_books_per_run: 3        # whole public-domain books per run (Project Gutenberg)
-    max_papers_per_run: 8       # paper abstracts per run (Semantic Scholar)
+    max_articles_per_hour: 12   # Wikipedia articles per hour
+    max_books_per_hour: 2       # whole public-domain books per hour (Project Gutenberg)
+    max_papers_per_hour: 10     # paper abstracts per hour (Semantic Scholar, arXiv)
+    min_relevance_words: 2      # a text must share this many words with the question and topic to be kept
     contact: https://github.com/etaskiran18/CuriosityAI  # sent to Wikipedia/Gutenberg; you may add your email
+  judge:                        # a separate, blind check of every claim about a quote (organism/judge.py)
+    enabled: true               # false = the organism grades its own evidence (only for ablation experiments)
+    model: ""                   # empty = the main model; a larger one is better, e.g. qwen2.5:14b (live.py --judge-model)
+  topic:                        # what a philosophy life studies; researcher mode uses live.py --topic instead
+    title: the philosophy of curiosity
+    min_relevance: 0.3          # new questions the judge rates below this (0..1) are set aside as off topic
+  exam_path: data/exams/philosophy_of_curiosity.json   # live.py --exam
   body:                         # take care of the computer it lives in (organism/body.py)
     enabled: true
     breath_seconds: 10          # short pause after every heartbeat

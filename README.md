@@ -2,10 +2,26 @@
 
 A local-first research system that tries to make an AI **curious**, not only able to talk about curiosity.
 
-## v8: the Curiosity Organism
+## v9: the Curiosity Organism, now measured honestly, and a researcher mode
 
-v1 to v7 ask a language model to write about curiosity and then grade the writing. v8 adds an
-organism whose **behavior is driven by curiosity**:
+v1 to v7 ask a language model to write about curiosity and then grade the writing. v8 added an
+organism whose **behavior is driven by curiosity**. v9 makes its measurements trustworthy and lets it
+study **your own research topic** (see [CHANGELOG_v9.md](CHANGELOG_v9.md)):
+
+- Predictions must be able to fail: who will say what, with a **probability**, scored with the Brier
+  score. Hedges like "may" and "might" are refused.
+- A **blind judge** (optionally a larger model) decides what each quote really supports; a sample is
+  saved so you can check the judge by hand.
+- It **stays on its topic** (the judge rates every new question; at most one is born per heartbeat),
+  and its **self-diagnosis** now counts only progress backed by evidence.
+- A **real debate**: the Skeptic must bring evidence, Wonder must defend, revise or concede, and an
+  answer too vague to be wrong earns no confidence.
+- An **outside exam** before and after a session measures what it learned by reading.
+- **Researcher mode**: `--topic "..." --papers <folder>` turns it into a curious assistant that reads
+  your PDFs and keeps a **research map** of open questions, hypotheses, surprises and gaps. See
+  **[docs/RESEARCHER.md](docs/RESEARCHER.md)**.
+
+What v8 brought:
 
 - It keeps a persistent **mind**: open questions, beliefs with evidence, and a temperament.
 - A **curiosity drive** chooses what to think about next: the information gap, learning progress,
@@ -21,8 +37,8 @@ organism whose **behavior is driven by curiosity**:
 - It **takes care of your computer**: it rests regularly, stops when the NVIDIA GPU gets hot (read
   with `nvidia-smi`) until it has cooled down, and on a laptop thinks only while plugged in.
 - It **grows its own library** (`--web`): when its books are silent on a question, it looks things up
-  on Wikipedia, downloads public-domain books from Project Gutenberg, and reads paper abstracts, and it
-  records why it acquired each text.
+  on Wikipedia, downloads public-domain books from Project Gutenberg, and reads paper abstracts
+  (Semantic Scholar, arXiv), and it records why it acquired each text.
 - Every session ends with a **report and metrics**, and baselines (`--policy random|novelty`) make
   controlled experiments possible. See **[docs/RESEARCH.md](docs/RESEARCH.md)**.
 
@@ -30,7 +46,8 @@ organism whose **behavior is driven by curiosity**:
 pip install -r requirements.txt
 ollama pull mistral:7b-instruct
 python live.py                      # live 5 heartbeats
-python live.py --minutes 60 --web   # a 1-hour session that can grow its library; ends with a report
+python live.py --minutes 60 --web --exam   # a 1-hour session that can grow its library, with the exam before and after
+python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers --minutes 60 --web   # researcher mode
 python live.py --add-book "Hobbes Leviathan"   # add a public-domain book to the library
 python live.py --status             # look inside its mind
 python live.py --ask "Can a machine be curious, or only act as if it were?"

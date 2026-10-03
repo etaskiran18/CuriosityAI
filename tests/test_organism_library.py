@@ -32,10 +32,17 @@ CATALOG_CSV = """Text#,Type,Issued,Title,Language,Authors,Subjects,LoCC,Bookshel
 3207,Text,2002-05-01,Leviathan,en,"Hobbes, Thomas, 1588-1679",Political science,JC,Philosophy
 59699,Text,2019-06-01,"History of the U.S.S. Leviathan, cruiser",en,U.S.S. Leviathan History Committee,World War,D,
 32406,Text,2010-05-01,The City Curious,en,"Boschère, Jean de, 1878-1953",Fairy tales,PZ,
+44336,Text,2013-12-01,"Diary of John Manningham, Barrister-at-Law, 1602-1603",en,"Manningham, John, -1622",England -- Social life and customs,DA,
 3296,Text,2002-07-01,The Confessions of St. Augustine,en,"Augustine, of Hippo, Saint, 354-430; Pusey, E. B. [Translator]",Christian saints,BR,
 77585,Text,2026-01-01,Confessions of St. Augustine,en,"Augustine, of Hippo, Saint, 354-430",Christian saints,BR,
 9999,Text,2003-01-01,Leviathan,fr,"Hobbes, Thomas, 1588-1679",Political science,JC,
 """
+
+ROVER = (
+    "Curiosity is a car-sized Mars rover exploring Gale crater and Mount Sharp on Mars as part of NASA's Mars Science "
+    "Laboratory mission. It landed in 2012 and studies the Martian climate and geology, and whether the site ever offered "
+    "environmental conditions favorable for microbial life. " * 4
+)
 
 BOOK = "*** START OF THE PROJECT GUTENBERG EBOOK LEVIATHAN ***\n" + "Curiosity, desire to know why and how, is a lust of the mind. " * 80
 
@@ -51,17 +58,35 @@ class Reply:
         return self._data
 
 
-class FakeInternet:
-    """Serves canned replies for Wikipedia, Gutenberg and Semantic Scholar; counts requests."""
+ARXIV_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1703.00001v1</id>
+    <published>2017-03-01T00:00:00Z</published>
+    <title>Curiosity-driven exploration by self-supervised prediction</title>
+    <summary>We formulate curiosity as the error in an agent's ability to predict the consequence of its own actions.
+    The information gap between what the agent can predict and what happens drives exploration and learning, and
+    curiosity helps the agent to explore its environment and learn skills that might be useful later.</summary>
+    <author><name>Deepak Pathak</name></author>
+  </entry>
+</feed>"""
 
-    def __init__(self, *, scholar_status=200, disambiguation=False):
+
+class FakeInternet:
+    """Serves canned replies for Wikipedia, Gutenberg, Semantic Scholar and arXiv; counts requests."""
+
+    def __init__(self, *, scholar_status=200, arxiv_status=200, disambiguation=False, rover=False):
         self.requests: list[str] = []
+        self.params: list[dict] = []
         self.scholar_status = scholar_status
+        self.arxiv_status = arxiv_status
         self.disambiguation = disambiguation
+        self.rover = rover
 
     def get(self, url, params=None, headers=None):
         params = params or {}
         self.requests.append(url)
+        self.params.append(params)
         if "wikipedia.org" in url and params.get("list") == "search":
             return Reply(data={"query": {"search": [
                 {"title": "Clickbait", "snippet": "exploit the curiosity gap"},
@@ -69,6 +94,8 @@ class FakeInternet:
             ]}})
         if "wikipedia.org" in url:
             title = params["titles"]
+            if title == "Curiosity" and self.rover:
+                return Reply(data={"query": {"pages": {"9": {"title": "Curiosity (rover)", "extract": ROVER}}}})
             if title == "Curiosity" and self.disambiguation:
                 return Reply(data={"query": {"pages": {"1": {"title": "Curiosity", "pageprops": {"disambiguation": ""}, "extract": "Curiosity may refer to:"}}}})
             if title == "Curiosity":
@@ -78,6 +105,10 @@ class FakeInternet:
             return Reply(content=gzip.compress(CATALOG_CSV.encode()))
         if "/cache/epub/" in url:
             return Reply(content=BOOK.encode())
+        if "arxiv.org" in url:
+            if self.arxiv_status != 200:
+                return Reply(status=self.arxiv_status, headers={"Retry-After": "1000"})
+            return Reply(content=ARXIV_FEED.encode())
         if "semanticscholar" in url:
             if self.scholar_status != 200:
                 return Reply(status=self.scholar_status, headers={"Retry-After": "1000"})
@@ -146,20 +177,32 @@ def test_disambiguation_pages_are_skipped_for_a_real_article(tmp_path: Path):
     assert lib.missed == ["Wikipedia: Curiosity"]
 
 
-def test_nothing_is_acquired_twice_and_quotas_hold(tmp_path: Path):
-    lib = make_librarian(tmp_path, FakeInternet(), max_books_per_run=1)
+def test_nothing_is_acquired_twice_and_quotas_hold_for_an_hour(tmp_path: Path):
+    now = [0.0]
+    http = Http("test-agent", min_interval=0, sleep=lambda s: None, session=FakeSession(FakeInternet()))
+    lib = Librarian(LibrarianConfig(enabled=True, max_books_per_hour=1), tmp_path / "library", http=http, clock=lambda: now[0])
     assert len(lib.acquire(ReadingWish(books=["Hobbes Leviathan"]), reason="r")) == 1
-    assert lib.acquire(ReadingWish(books=["Augustine Confessions"]), reason="r") == []  # quota used
-    lib.used["book"] = 0
-    assert lib.acquire(ReadingWish(books=["Hobbes Leviathan"]), reason="r") == []  # already owned
+    assert lib.acquire(ReadingWish(books=["Augustine Confessions"]), reason="r") == []  # this hour's quota is used
+    now[0] = 3601.0  # an hour later the quota is free again
+    assert lib.acquire(ReadingWish(books=["Hobbes Leviathan"]), reason="r") == []  # but this one is already owned
     assert lib.owned == ["book: Hobbes Leviathan"]
+    assert len(lib.acquire(ReadingWish(books=["Augustine Confessions"]), reason="r")) == 1
 
 
-def test_a_busy_source_is_skipped_without_stopping_the_others(tmp_path: Path):
-    lib = make_librarian(tmp_path, FakeInternet(scholar_status=429))
-    got = lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap theory"]), reason="r")
+def test_a_busy_source_is_reported_as_busy_not_as_nothing_found(tmp_path: Path):
+    lib = make_librarian(tmp_path, FakeInternet(scholar_status=429, arxiv_status=503))
+    got = lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap curiosity"]), reason="r")
     assert [a.kind for a in got] == ["encyclopedia"]
-    assert lib.missed == ["paper: information gap theory"]
+    assert lib.busy == ["paper: information gap curiosity"] and lib.missed == []
+
+
+def test_when_semantic_scholar_is_busy_arxiv_is_asked(tmp_path: Path):
+    lib = make_librarian(tmp_path, FakeInternet(scholar_status=429))
+    got = lib.acquire(ReadingWish(papers=["curiosity prediction exploration"]), reason="r")
+    assert [a.title for a in got] == ["Curiosity-driven exploration by self-supervised prediction"]
+    meta, body = strip_front_matter(Path(got[0].path).read_text(encoding="utf-8"))
+    assert meta["cite_as"] == "PAPER" and "arXiv" in meta["license"] and meta["year"] == "2017"
+    assert "Deepak Pathak" in body
 
 
 def test_http_waits_as_asked_then_rests_the_host():
@@ -200,8 +243,13 @@ class FakeLibrarian:
         self.missed: list[str] = []
         self.owned: list[str] = []
 
-    def acquire(self, wish, *, reason, question_id=None, heartbeat=None):
+    busy: list[str] = []
+    rejected: list[str] = []
+    failed_searches: list[str] = []
+
+    def acquire(self, wish, *, reason, question_id=None, heartbeat=None, context="", until_year=None):
         self.wishes.append(wish)
+        self.contexts = getattr(self, "contexts", []) + [context]
         folder = self.library_dir / "encyclopedia"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"wonder_{heartbeat}.md"
@@ -219,6 +267,8 @@ def test_a_silent_library_sends_the_organism_to_look_elsewhere(config):
     assert ep.library_misses == ["paper: information gap theory of curiosity"]
     wish = org.librarian.wishes[0]
     assert wish.topics == ["Curiosity"] and wish.books == ["Thomas Hobbes Leviathan"]
+    assert wish.papers == ["information gap theory curiosity review reinterpretation"]  # keywords, not an invented title
+    assert "wonder" in org.librarian.contexts[0].lower()  # what a found text must be about
     assert org.senses.library.search("wonder emotion rare unexpected", k=1)[0].note == "encyclopedia article"
     assert "went to the library" in (org.home / "diary.md").read_text(encoding="utf-8")
     assert json.loads((org.home / "episodes.jsonl").read_text(encoding="utf-8").splitlines()[0])["acquisitions"] == ["Wikipedia: Wonder"]
@@ -270,3 +320,49 @@ def test_same_author_and_contained_title_means_same_book(tmp_path: Path):
     assert already_in(tmp_path, "150", "The Republic of Plato", "Plato")
     assert not already_in(tmp_path, "150", "The Republic of Plato", "Cicero")
     assert not already_in(tmp_path, "999", "Laws", "Plato")
+
+
+CONTEXT = "When does curiosity turn into a vice, a restless hunger for novelty? curiosity wonder doubt inquiry knowledge attention"
+
+
+def test_a_text_that_only_shares_a_name_with_the_topic_is_not_kept(tmp_path: Path):
+    lib = make_librarian(tmp_path, FakeInternet(rover=True))
+    assert lib.acquire(ReadingWish(topics=["Curiosity"]), reason="r", context=CONTEXT) == []
+    assert lib.rejected == ["Wikipedia: Curiosity (found 'Curiosity (rover)')"]
+    kept = make_librarian(tmp_path / "other", FakeInternet())
+    assert len(kept.acquire(ReadingWish(topics=["Curiosity"]), reason="r", context=CONTEXT)) == 1  # the real article
+
+
+def test_a_first_name_cannot_pull_in_a_strangers_book(tmp_path: Path):
+    lib = make_librarian(tmp_path, FakeInternet())
+    assert lib.gutenberg.search("John Locke Diary", strict=True) == []
+    assert lib.gutenberg.search("Manningham Diary", strict=True)[0].ebook_id == "44336"
+
+
+def test_a_search_that_found_nothing_is_not_repeated(tmp_path: Path):
+    internet = FakeInternet()
+    lib = make_librarian(tmp_path, internet)
+    assert lib.acquire(ReadingWish(topics=["Zeigarnik effect"]), reason="r") == []
+    assert lib.missed == ["Wikipedia: Zeigarnik effect"]
+    asked = len(internet.requests)
+    assert lib.acquire(ReadingWish(topics=["zeigarnik  Effect"]), reason="r") == []
+    assert len(internet.requests) == asked and lib.missed == []
+
+
+def test_a_time_split_reads_only_older_papers_and_no_encyclopedia(tmp_path: Path):
+    internet = FakeInternet()
+    lib = make_librarian(tmp_path, internet)
+    got = lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap curiosity"]), reason="r", until_year=2020)
+    assert [a.kind for a in got] == ["paper"]
+    assert not any("wikipedia" in url for url in internet.requests)
+    scholar = next(p for url, p in zip(internet.requests, internet.params) if "semanticscholar" in url)
+    assert scholar["year"] == "-2020"
+
+
+def test_arxiv_entries_are_parsed():
+    from curiosity_ai.organism.librarian import parse_arxiv
+
+    papers = parse_arxiv(ARXIV_FEED.encode())
+    assert papers[0]["url"] == "http://arxiv.org/abs/1703.00001v1" and papers[0]["year"] == "2017"
+    assert papers[0]["authors"] == [{"name": "Deepak Pathak"}]
+    assert parse_arxiv(b"not xml") == []

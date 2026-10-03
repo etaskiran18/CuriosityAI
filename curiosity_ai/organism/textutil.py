@@ -163,6 +163,58 @@ def verify_quote(quote: str, source_text: str, *, min_words: int = 4, fuzzy: flo
     return joined if len(words) <= keep_words else " ".join(words[:keep_words]) + " ..."
 
 
+# A prediction hedged with "may" or "might" can never be wrong: whatever the texts
+# say, it survives. Doubt belongs in the probability, not in the wording.
+_HEDGE_RE = re.compile(
+    r"\b(may|might|could|possibly|perhaps|potentially|presumably|probably|likely|"
+    r"it is possible|some (?:texts|authors|thinkers|sources))\b",
+    re.IGNORECASE,
+)
+
+# Words that let an answer avoid committing to anything ("a complex, multifaceted
+# interplay of various factors"). One is a style; several together are a non-answer.
+_VAGUE_RE = re.compile(
+    r"\b(complex|complexity|multifaceted|multi-faceted|dynamic|interplay|nuanced|holistic|"
+    r"intricate|various factors|multiple factors|many factors|range of factors|variety of factors|"
+    r"it depends|depends on (?:the )?(?:context|individual)|individual differences|"
+    r"cultural (?:differences|variations|contexts))\b",
+    re.IGNORECASE,
+)
+
+
+def is_hedged(text: str) -> bool:
+    return bool(_HEDGE_RE.search(text or ""))
+
+
+def vagueness(text: str) -> int:
+    """How many distinct non-committal phrases the text leans on."""
+    return len({m.group(0).lower() for m in _VAGUE_RE.finditer(text or "")})
+
+
+def topic_relevance(text: str, topic_words: frozenset[str]) -> float:
+    """How much of a question is about the topic, from 0 to 1 (lexical, as a fallback).
+
+    The share of the question's content words that belong to the topic's
+    vocabulary (its seed questions and key terms), doubled so that a question
+    half made of topic words counts as fully on topic.
+    """
+    words = token_set(text)
+    if not words or not topic_words:
+        return 1.0
+    return min(1.0, 2.0 * len(words & topic_words) / len(words))
+
+
+def keywords_of(text: str, limit: int = 6) -> str:
+    """The first distinct content words of a phrase: a search query, not an invented title."""
+    seen: list[str] = []
+    for word in _WORD_RE.findall(fold(text)):
+        if len(word) > 2 and word not in STOPWORDS and word not in seen:
+            seen.append(word)
+        if len(seen) >= limit:
+            break
+    return " ".join(seen)
+
+
 def clip(text: str, max_chars: int) -> str:
     text = (text or "").strip()
     if len(text) <= max_chars:

@@ -17,6 +17,9 @@ Each term is a mechanism taken from the philosophy or psychology of curiosity
 * importance -- Hume: the truth we pursue must seem of some importance.
 * boredom -- the guard against Augustine's curiositas and Heidegger's Neugier:
   restless attention that never dwells long enough to understand.
+* topic anchor -- a question far from the main topic pulls less. Without it a
+  language model drifts from "is doubt the engine of inquiry?" to "how can we
+  develop adaptive learning strategies for diverse cultural contexts?".
 
 Everything here is pure arithmetic so it can be unit-tested.
 """
@@ -105,6 +108,7 @@ class DriveReading:
     importance: float
     boredom: float
     refractory: float
+    relevance: float = 1.0  # how directly the question serves the main topic
 
     def as_dict(self) -> dict[str, float]:
         d = asdict(self)
@@ -124,7 +128,19 @@ class DriveSettings:
     anchor_k: int = 3
 
 
-def read_drive(question: Question, temperament: Temperament, now: int, related_beliefs: int, settings: DriveSettings) -> DriveReading:
+def topic_factor(relevance: float, anchor: float) -> float:
+    """1 for a central question; down to 1 - anchor for one off the topic."""
+    return 1.0 - clamp(anchor) * (1.0 - clamp(relevance))
+
+
+def read_drive(
+    question: Question,
+    temperament: Temperament,
+    now: int,
+    related_beliefs: int,
+    settings: DriveSettings,
+    relevance: float = 1.0,
+) -> DriveReading:
     gap = information_gap(question.confidence)
     anchor = anchoring(related_beliefs, settings.anchor_k)
     lp = learning_progress(question, window=settings.lp_window, prior=settings.lp_prior, max_step=settings.max_confidence_step)
@@ -147,8 +163,8 @@ def read_drive(question: Question, temperament: Temperament, now: int, related_b
         + w.novelty * nov
         + w.importance * imp
     )
-    total = raw * (1.0 - bored) * (1.0 - refractory)
-    return DriveReading(question.id, total, gap, anchor, lp, surprise, nov, imp, bored, refractory)
+    total = raw * (1.0 - bored) * (1.0 - refractory) * topic_factor(relevance, temperament.topic_anchor)
+    return DriveReading(question.id, total, gap, anchor, lp, surprise, nov, imp, bored, refractory, clamp(relevance))
 
 
 def choose(readings: list[DriveReading], temperature: float, rng: random.Random) -> DriveReading | None:
@@ -176,8 +192,11 @@ DIAGNOSES: dict[str, dict[str, str]] = {
     "restless_curiositas": {
         "name": "Restless curiositas",
         "source": "Augustine, Confessions X.35; Heidegger, Being and Time section 36 (Neugier)",
-        "meaning": "I jump from question to question without dwelling long enough to understand any of them.",
-        "response": "Value learning progress over novelty, and be more patient before getting bored.",
+        "meaning": (
+            "I jump from question to question without dwelling long enough to understand any of them: "
+            "new questions multiply faster than I settle any, or I drift away from my main topic."
+        ),
+        "response": "Value learning progress over novelty, stay closer to my main topic, and be more patient before getting bored.",
     },
     "dogmatic_slumber": {
         "name": "Dogmatic slumber",
@@ -202,46 +221,61 @@ class Vitals:
     mean_informativeness: float
     diversity: float
     births_per_episode: float
+    settled_per_episode: float = 0.0
+    on_topic: float = 1.0  # mean relevance of the questions it worked on
+    evidence_rate: float = 0.0  # share of episodes with evidence the judge accepted
 
     def as_dict(self) -> dict[str, float]:
         return {k: round(v, 3) if isinstance(v, float) else v for k, v in asdict(self).items()}
+
+
+def made_progress(e: Episode) -> bool:
+    """The mind moved because of evidence: not just because the model said so.
+
+    A belief grounded in a quote the judge accepted counts. So does a change of
+    confidence or a doubted belief, but only when the judge accepted at least one
+    confirmation or contradiction in that heartbeat. A small confidence bump
+    with no evidence behind it is what a language model produces anyway.
+    """
+    evidence = e.support + e.contradicted > 0
+    moved = abs(e.confidence - e.prior_confidence) >= 0.05 or bool(e.doubted_belief_ids)
+    return e.grounded_new_beliefs > 0 or (evidence and moved)
 
 
 def compute_vitals(episodes: list[Episode]) -> Vitals:
     n = len(episodes)
     if n == 0:
         return Vitals(0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    # Progress means the mind actually moved: confidence changed, an old belief was
-    # doubted, or a belief backed by a verified quote was formed. Unsupported
-    # "lessons" are too cheap for a language model to count.
-    progressed = sum(
-        1
-        for e in episodes
-        if abs(e.confidence - e.prior_confidence) >= 0.05 or e.doubted_belief_ids or e.grounded_new_beliefs
-    )
     return Vitals(
         episodes=n,
-        progress_rate=progressed / n,
+        progress_rate=sum(1 for e in episodes if made_progress(e)) / n,
         mean_surprise=_mean(e.prediction_error for e in episodes),
         mean_informativeness=_mean(e.informativeness for e in episodes),
         diversity=len({e.question_id for e in episodes}) / n,
         births_per_episode=sum(len(e.new_question_ids) for e in episodes) / n,
+        settled_per_episode=sum(1 for e in episodes if e.status_after == "settled") / n,
+        on_topic=_mean(e.relevance for e in episodes),
+        evidence_rate=sum(1 for e in episodes if e.support + e.contradicted > 0) / n,
     )
 
 
 def diagnose(v: Vitals) -> str:
     if v.episodes < 3:
         return "healthy_wonder"
+    jumping = v.progress_rate < 0.35 and v.diversity >= 0.75
+    multiplying = v.births_per_episode >= 0.8 and v.settled_per_episode == 0 and v.diversity >= 0.8
+    drifting = v.on_topic < 0.5
+    if jumping or multiplying or drifting:
+        return "restless_curiositas"
     if v.mean_surprise < 0.15 and v.births_per_episode < 0.7:
         return "dogmatic_slumber"
-    if v.progress_rate < 0.35 and v.diversity >= 0.75:
-        return "restless_curiositas"
     if v.progress_rate < 0.35 and v.mean_surprise >= 0.45:
         return "aporetic_numbness"
     return "healthy_wonder"
 
 
 _WEIGHT_BOUNDS = (0.05, 0.6)
+_ANCHOR_BOUNDS = (0.2, 0.9)
 
 
 def regulate(temperament: Temperament, diagnosis: str, baseline: Temperament, step: float = 0.04) -> tuple[Temperament, list[str]]:
@@ -258,15 +292,23 @@ def regulate(temperament: Temperament, diagnosis: str, baseline: Temperament, st
         setattr(t, name, clamp(old + delta, *_WEIGHT_BOUNDS))
         changes.append(f"{name} {old:.2f} -> {getattr(t, name):.2f}")
 
+    def anchor(delta: float) -> None:
+        old = t.topic_anchor
+        t.topic_anchor = clamp(old + delta, *_ANCHOR_BOUNDS)
+        if abs(t.topic_anchor - old) >= 0.005:
+            changes.append(f"topic_anchor {old:.2f} -> {t.topic_anchor:.2f}")
+
     if diagnosis == "restless_curiositas":
         shift("novelty", -step)
         shift("learning_progress", +step)
+        anchor(+step)
         if t.boredom_patience < 6:
             t.boredom_patience += 1
             changes.append(f"boredom_patience -> {t.boredom_patience}")
     elif diagnosis == "dogmatic_slumber":
         shift("surprise", +step)
         shift("novelty", +step)
+        anchor(-step)
         new_temp = clamp(t.exploration_temperature + 0.03, 0.05, 0.5)
         changes.append(f"exploration_temperature {t.exploration_temperature:.2f} -> {new_temp:.2f}")
         t.exploration_temperature = new_temp
@@ -284,6 +326,7 @@ def regulate(temperament: Temperament, diagnosis: str, baseline: Temperament, st
             if abs(new - old) >= 0.005:
                 setattr(t, name, new)
                 changes.append(f"{name} {old:.2f} -> {new:.2f} (toward baseline)")
+        anchor(0.25 * (baseline.topic_anchor - t.topic_anchor))
 
     total = sum(t.weights().values())
     for name, value in t.weights().items():

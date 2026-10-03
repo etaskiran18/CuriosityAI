@@ -28,8 +28,10 @@ def test_a_heartbeat_learns_only_from_verified_quotes(config):
     assert statuses == {1: "confirmed", 2: "not_addressed", 3: "unverified"}
     assert ep.rejected_quotes == 2  # the invented contradiction and the invented "unexpected" finding
     assert len(ep.unexpected) == 1
-    assert ep.prediction_error == pytest.approx(0.5 / 3.5)
+    # Brier: E1 was predicted with p=0.8 and confirmed, (1 - 0.8)^2 = 0.04; the finding counts half.
+    assert ep.prediction_error == pytest.approx((0.04 + 0.5) / 3.5)
     assert ep.informativeness == pytest.approx(1.5 / 3.5)
+    assert ep.brier == pytest.approx(0.04)
 
     grounded = org.state.beliefs[ep.new_belief_ids[0]]
     interpretive = org.state.beliefs[ep.new_belief_ids[1]]
@@ -57,9 +59,12 @@ def test_new_questions_are_born_and_restatements_are_dropped(config):
     assert len(org.state.questions) == 2
 
 
+FALSIFIABLE = "A passage showing wonder without any perplexity would refute this."
+
+
 def test_confidence_moves_in_bounded_steps(config):
     config.organism.evidence_ceiling_base = 1.0
-    llm = ScriptedLLM(settle={"answer": "Certain now.", "confidence": 1.0, "learned": [], "new_questions": []})
+    llm = ScriptedLLM(stance="DEFEND", settle={"answer": "Certain now.", "would_be_wrong_if": FALSIFIABLE, "confidence": 1.0, "learned": [], "new_questions": []})
     org = CuriosityOrganism(config, llm=llm)
     ep = org.heartbeat()
     assert ep.prior_confidence == pytest.approx(0.4)
@@ -67,7 +72,7 @@ def test_confidence_moves_in_bounded_steps(config):
 
 
 def test_confidence_cannot_outrun_the_evidence(config):
-    llm = ScriptedLLM(settle={"answer": "Certain now.", "confidence": 1.0, "learned": [], "new_questions": []})
+    llm = ScriptedLLM(stance="DEFEND", settle={"answer": "Certain now.", "would_be_wrong_if": FALSIFIABLE, "confidence": 1.0, "learned": [], "new_questions": []})
     org = CuriosityOrganism(config, llm=llm)
     ep = org.heartbeat()
     assert org.state.questions["Q1"].visits[-1].support == 1
@@ -107,7 +112,7 @@ def test_the_mind_survives_a_restart(config):
     assert not again.newborn
     assert again.state.heartbeat == 1
     assert again.state.questions.keys() == org.state.questions.keys()
-    assert again.state.questions["Q1"].visits[0].prediction_error == pytest.approx(0.5 / 3.5)
+    assert again.state.questions["Q1"].visits[0].prediction_error == pytest.approx(0.54 / 3.5)
     assert "Heartbeat 1" in (org.home / "diary.md").read_text(encoding="utf-8")
     episodes = (org.home / "episodes.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(episodes[0])["question_id"] == "Q1"
@@ -215,7 +220,7 @@ def test_the_same_words_cannot_be_both_expected_and_unexpected(config):
     ep = org.heartbeat()
     assert ep.unexpected == []
     assert ep.rejected_quotes == 0
-    assert ep.prediction_error == 0.0
+    assert ep.prediction_error == pytest.approx(0.04 / 3)  # only E1's small Brier error: nothing unexpected
 
 
 def test_a_voice_cannot_speak_for_the_other():

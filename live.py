@@ -9,12 +9,17 @@ Examples:
     python live.py --status                          # look inside its mind
     python live.py --new-life                        # archive this life and start again
     python live.py --check                           # check this computer's setup and say what to fix
+    python live.py --minutes 60 --web --exam         # a 1-hour test, with the exam before and after
+
+Researcher mode (a curious assistant on your own topic, reading your papers):
+    python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/batteries --minutes 60 --web
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -32,6 +37,9 @@ from curiosity_ai.organism import CuriosityOrganism, OrganismError
 from curiosity_ai.organism.body import SystemSensors
 from curiosity_ai.organism.librarian import Librarian, user_agent
 from curiosity_ai.organism.drive import DIAGNOSES
+from curiosity_ai.organism.exam import run_exam
+from curiosity_ai.organism.papers import ingest_papers
+from curiosity_ai.organism.research_map import write_research_map
 from curiosity_ai.organism.state import Episode
 from curiosity_ai.organism.textutil import one_line
 
@@ -71,6 +79,13 @@ def run_checks(config: AppConfig, online: bool = False) -> int:
     except Exception:
         rows.append(("note", "chromadb", "not installed: only needed for the v7 run.py or retrieval: chroma"))
 
+    try:
+        import pypdf
+
+        rows.append(("ok", "pypdf", f"{pypdf.__version__} (reads your PDF papers in researcher mode)"))
+    except Exception:
+        rows.append(("note", "pypdf", "not installed: only needed for PDF papers in researcher mode (pip install pypdf)"))
+
     corpus = Path(config.corpus.path)
     extensions = {e.lower() for e in config.corpus.accepted_extensions}
     texts = [f for f in corpus.glob("*") if f.suffix.lower() in extensions and not f.name.lower().startswith("readme")] if corpus.exists() else []
@@ -83,6 +98,16 @@ def run_checks(config: AppConfig, online: bool = False) -> int:
     except Exception:
         names = None
         rows.append(("FIX", "Ollama", f"not reachable at {base}. Start it in another terminal with: ollama serve"))
+    judge = config.organism.judge
+    if judge.enabled and judge.model and names is not None and not judge.base_url:
+        if _is_model(names, judge.model):
+            rows.append(("ok", "Judge model", judge.model))
+        else:
+            rows.append(("FIX", "Judge model", f"'{judge.model}' is not installed. Run: ollama pull {judge.model}"))
+    elif judge.enabled:
+        rows.append(("ok", "Judge", "on, using the main model (a larger judge model makes measurements stronger)" if not judge.model else f"on, {judge.model}"))
+    else:
+        rows.append(("note", "Judge", "off: the organism grades its own evidence (only for ablation experiments)"))
     if names is not None and not _is_model(names, model):
         rows.append(("FIX", "Model", f"'{model}' is not installed. Run: ollama pull {model}"))
     elif names is not None:
@@ -149,6 +174,7 @@ def _online_rows(config: AppConfig) -> list[tuple[str, str, str]]:
         ("Project Gutenberg", f"{lib.gutenberg_mirror.rstrip('/')}/cache/epub/1643/pg1643.txt", None, {}, True),
         ("Semantic Scholar", "https://api.semanticscholar.org/graph/v1/paper/search",
          {"query": "curiosity", "limit": 1, "fields": "title"}, {"x-api-key": key} if key else {}, False),
+        ("arXiv", "https://export.arxiv.org/api/query", {"search_query": "all:curiosity", "max_results": 1}, {}, False),
     ]
     rows = []
     for name, url, params, extra, needed in probes:
@@ -202,6 +228,17 @@ def print_heartbeat(organism: CuriosityOrganism, ep: Episode | None) -> None:
         f"surprise {ep.prediction_error:.2f}",
         f"confidence {ep.prior_confidence:.2f} -> {ep.confidence:.2f}",
     ]
+    if ep.support or ep.contradicted:
+        parts.append(f"evidence +{ep.support}/-{ep.contradicted}")
+    rejected = sum(1 for j in ep.judgments if j.get("judge") == "neither")
+    if rejected:
+        parts.append(f"judge rejected {rejected} quote(s)")
+    if ep.stance:
+        parts.append(f"wonder {ep.stance}s")
+    if ep.vague:
+        parts.append("answer too vague to be wrong")
+    if ep.set_aside_questions:
+        parts.append(f"{len(ep.set_aside_questions)} off-topic question(s) set aside")
     if ep.new_belief_ids:
         parts.append(f"+{len(ep.new_belief_ids)} belief(s)")
     if ep.doubted_belief_ids:
@@ -232,26 +269,29 @@ def print_status(organism: CuriosityOrganism) -> None:
         belief_counts[b.status] = belief_counts.get(b.status, 0) + 1
     diagnosis = DIAGNOSES.get(st.self_model.diagnosis, DIAGNOSES["healthy_wonder"])
     t = st.temperament
-    console.print(
-        Panel(
-            f"[bold]{escape(st.name)}[/bold], {st.heartbeat} heartbeats old (born {st.born_at[:10]})\n"
-            f"Questions: {', '.join(f'{k} {v}' for k, v in sorted(counts.items())) or 'none'}\n"
-            f"Beliefs: {', '.join(f'{k} {v}' for k, v in sorted(belief_counts.items())) or 'none'}\n"
-            f"State of curiosity: [magenta]{diagnosis['name']}[/magenta] - {diagnosis['meaning']}\n"
-            f"Temperament: gap {t.gap:.2f}, learning progress {t.learning_progress:.2f}, surprise {t.surprise:.2f}, "
-            f"novelty {t.novelty:.2f}, importance {t.importance:.2f}, patience {t.boredom_patience}, "
-            f"exploration {t.exploration_temperature:.2f}\n\n"
-            f"[bold]What it thinks curiosity is:[/bold] {escape(st.self_model.understanding_of_curiosity)}",
-            title="Curiosity organism",
-        )
+    years = f" (papers up to {st.topic.until_year})" if st.topic.until_year else ""
+    if organism.research:
+        theory = f"[bold]What it thinks about its topic:[/bold] {escape(organism._understanding())}"
+    else:
+        theory = f"[bold]What it thinks curiosity is:[/bold] {escape(st.self_model.understanding_of_curiosity)}"
+    text = (
+        f"[bold]{escape(st.name)}[/bold], {st.heartbeat} heartbeats old (born {st.born_at[:10]}), studying "
+        f"[bold]{escape(st.topic.title)}[/bold]{escape(years)}\n"
+        f"Questions: {', '.join(f'{k} {v}' for k, v in sorted(counts.items())) or 'none'}\n"
+        f"Beliefs: {', '.join(f'{k} {v}' for k, v in sorted(belief_counts.items())) or 'none'}\n"
+        f"State of curiosity: [magenta]{diagnosis['name']}[/magenta] - {diagnosis['meaning']}\n"
+        f"Temperament: gap {t.gap:.2f}, learning progress {t.learning_progress:.2f}, surprise {t.surprise:.2f}, "
+        f"novelty {t.novelty:.2f}, importance {t.importance:.2f}, patience {t.boredom_patience}, "
+        f"exploration {t.exploration_temperature:.2f}, topic anchor {t.topic_anchor:.2f}\n\n{theory}"
     )
+    console.print(Panel(text, title="Curiosity organism" + (" (researcher)" if organism.research else "")))
     table = Table(title="Open questions, by the pull they exert")
-    for col in ("id", "pull", "gap", "progress", "surprise", "novelty", "bored", "conf", "question"):
+    for col in ("id", "pull", "gap", "progress", "surprise", "novelty", "bored", "topic", "conf", "question"):
         table.add_column(col, justify="right" if col not in ("id", "question") else "left")
     for q, r in organism.drives()[:12]:
         table.add_row(
             q.id, f"{r.total:.2f}", f"{r.gap:.2f}", f"{r.learning_progress:.2f}", f"{r.surprise:.2f}",
-            f"{r.novelty:.2f}", f"{r.boredom:.2f}", f"{q.confidence:.2f}", escape(one_line(q.text, 120)),
+            f"{r.novelty:.2f}", f"{r.boredom:.2f}", f"{r.relevance:.2f}", f"{q.confidence:.2f}", escape(one_line(q.text, 120)),
         )
     console.print(table)
     beliefs = sorted(st.held_beliefs(), key=lambda b: -b.confidence)[:10]
@@ -265,6 +305,8 @@ def print_status(organism: CuriosityOrganism) -> None:
         console.print(btable)
     print_library(organism)
     console.print(f"Diary: {escape(str(organism.home / 'diary.md'))}   Mind: {escape(str(organism.mind_path))}")
+    if (organism.home / "research_map.md").exists():
+        console.print(f"Research map: {escape(str(organism.home / 'research_map.md'))}")
 
 
 def print_library(organism: CuriosityOrganism) -> None:
@@ -274,8 +316,9 @@ def print_library(organism: CuriosityOrganism) -> None:
     corpus = [f for f in Path(config.corpus.path).glob("*") if f.suffix.lower() in extensions and not f.name.lower().startswith("readme")]
     shared = list(organism.inbox_dir.glob("*.md")) if organism.inbox_dir.exists() else []
     acquired = {kind: len(list((organism.library_dir / kind).glob("*.md"))) for kind in ("encyclopedia", "books", "papers")}
+    own = f"{len(list(organism.papers_dir.glob('*.md')))} of your papers" if organism.research else f"{len(corpus)} texts in the corpus"
     console.print(
-        f"[bold]Library:[/bold] {len(corpus)} texts in the corpus, {len(shared)} shared by humans, acquired by itself: "
+        f"[bold]Library:[/bold] {own}, {len(shared)} shared by humans, acquired by itself: "
         f"{acquired['encyclopedia']} encyclopedia articles, {acquired['books']} books, {acquired['papers']} paper abstracts."
     )
     log = organism.library_dir / "acquisitions.jsonl"
@@ -309,17 +352,48 @@ def add_books(config: AppConfig, queries: list[str]) -> int:
 
 def print_session(report) -> None:
     m = report.metrics
+    judge = f"judge agreed {m['judge_agreement']:.0%} of {m['judge_pairs']}" if m.get("judge_pairs") else "judge: nothing to check"
+    exam = ""
+    if "exam_after" in m:
+        exam = f"\nexam: {m.get('exam_before', 0):.0%} -> {m['exam_after']:.0%} (grounded {m.get('exam_grounded_before', 0):.0%} -> {m['exam_grounded_after']:.0%})"
     console.print(
         Panel(
             f"{m['heartbeats']} heartbeats in {m['minutes']:g} min (rested {m['rest_minutes']:g} min) | "
-            f"questions born {m['questions_born']} | new beliefs {m['beliefs_new']} ({m['beliefs_grounded']} grounded) | "
-            f"doubted {m['beliefs_doubted']}\n"
-            f"surprise {m['mean_surprise']:.2f} | texts addressed {m['mean_informativeness']:.0%} | "
-            f"invented quotes caught {m['quotes_rejected']} | texts acquired {m['acquisitions']}",
+            f"questions born {m['questions_born']}, set aside {m['questions_set_aside']} | new beliefs {m['beliefs_new']} "
+            f"({m['beliefs_grounded']} grounded) | doubted {m['beliefs_doubted']}\n"
+            f"predictions {m['predictions']} (hedged {m['hedged_rate']:.0%}), confirmed {m['predictions_confirmed']}, "
+            f"contradicted {m['predictions_contradicted']} | Brier {m['mean_brier']:.2f} | {judge} | "
+            f"on topic {m['mean_on_topic']:.2f} | invented quotes caught {m['quotes_rejected']} | texts acquired {m['acquisitions']}{exam}",
             title=f"Session {escape(report.session_id)}",
         )
     )
     console.print(f"Report: {escape(str(report.directory / 'report.md'))}")
+    research_map = Path(m["home"]) / "research_map.md"
+    if research_map.exists():
+        console.print(f"Research map: {escape(str(research_map))}")
+
+
+def print_exam(result) -> None:
+    table = Table(title=f"Exam: {result.exam} - score {result.score:.0%}, grounded {result.grounded_score:.0%}")
+    for col in ("id", "grade", "grounded", "answer"):
+        table.add_column(col)
+    for a in result.answers:
+        table.add_row(a.id, a.grade, "yes" if a.grounded else "", escape(one_line(a.answer, 110)))
+    console.print(table)
+    console.print(f"Saved: {escape(str(result.path))}")
+
+
+def ingest(config: AppConfig, folder: str) -> int:
+    """Researcher mode: convert the person's papers into the organism's library."""
+    target = Path(config.organism.home) / "papers"
+    console.print(f"[dim]Reading your papers from {escape(folder)} ...[/dim]")
+    report = ingest_papers(Path(folder), target, max_pages=config.organism.research.max_pdf_pages)
+    console.print(
+        f"Papers: {len(report.added)} added, {len(report.already)} already in its library, {len(report.failed)} could not be read."
+    )
+    for name, why in report.failed[:10]:
+        console.print(f"[yellow]  {escape(name)}: {escape(why)}[/yellow]")
+    return 0 if report.added or report.already else 1
 
 
 def main() -> int:
@@ -345,6 +419,14 @@ def main() -> int:
     parser.add_argument("--model", default=None, help="Override llm.model (e.g. mistral:7b-instruct, qwen2.5:3b)")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible choices")
     parser.add_argument("--check", action="store_true", help="Check this computer's setup (with --web, also the online sources) and exit")
+    parser.add_argument("--exam", nargs="?", const="default", default=None, metavar="FILE",
+                        help="Take the exam (default data/exams/philosophy_of_curiosity.json); with a session, before and after it")
+    parser.add_argument("--judge-model", default=None, help="A separate, ideally larger, model for the blind judge (e.g. qwen2.5:14b)")
+    parser.add_argument("--no-judge", action="store_true", help="Let the organism grade its own evidence (only for ablation experiments)")
+    parser.add_argument("--topic", default=None, help='Researcher mode: the research topic of a new life, e.g. "How do lithium-ion batteries age?"')
+    parser.add_argument("--papers", default=None, metavar="FOLDER", help="Researcher mode: a folder of your papers (PDF, .txt, .md) to read")
+    parser.add_argument("--until-year", type=int, default=None, help="Researcher mode: read only papers published up to this year (time-split tests)")
+    parser.add_argument("--map", action="store_true", help="Write the research map (research_map.md) now and exit")
     args = parser.parse_args()
 
     load_dotenv()
@@ -363,6 +445,19 @@ def main() -> int:
         config.organism.policy = args.policy
     if args.web:
         config.organism.librarian.enabled = True
+    if args.judge_model:
+        config.organism.judge.model = args.judge_model
+    if args.no_judge:
+        config.organism.judge.enabled = False
+    if args.topic:
+        if not args.home:
+            slug = re.sub(r"[^a-z0-9]+", "-", args.topic.lower()).strip("-")[:40] or "topic"
+            config.organism.home = f"memory/research/{slug}"
+        config.organism.research.topic = args.topic
+        config.organism.research.until_year = args.until_year
+    elif args.papers or args.until_year:
+        console.print("[red]--papers and --until-year belong to researcher mode: add --topic \"your topic\".[/red]")
+        return 1
     if args.check:
         return run_checks(config, online=args.web)
     if args.add_book:
@@ -374,10 +469,28 @@ def main() -> int:
         archived = CuriosityOrganism.archive(config)
         console.print(f"Previous life archived to {escape(str(archived))}." if archived else "There was no previous life to archive.")
 
+    home = Path(config.organism.home)
+    if args.papers and ingest(config, args.papers):
+        console.print("[red]No papers could be read; check the folder.[/red]")
+        return 1
+    if args.topic and not (home / "mind.json").exists():
+        console.print(f"[dim]A new researcher life will be born in {escape(str(home))}; it first prepares its questions.[/dim]")
+        if not check_ollama(config):
+            return 1
+
     organism = CuriosityOrganism(config)
     organism.body.log = lambda message: console.print(f"[blue]{escape(message)}[/blue]")
     if organism.newborn:
-        console.print(f"[green]{escape(organism.state.name)} is born[/green] with {len(organism.state.questions)} questions.")
+        console.print(f"[green]{escape(organism.state.name)} is born[/green] to study [bold]{escape(organism.state.topic.title)}[/bold] "
+                      f"with {len(organism.state.questions)} questions:")
+        for q in organism.state.questions.values():
+            console.print(f"  {q.id} {escape(q.text)}")
+    elif args.topic and organism.state.topic.description != one_line(args.topic, 600):
+        console.print(f"[yellow]This life already studies '{escape(organism.state.topic.title)}'; it continues. "
+                      "Use --new-life (or another --home) for a new topic.[/yellow]")
+    if args.map:
+        console.print(f"Research map: {escape(str(write_research_map(organism)))}")
+        return 0
 
     for question in args.ask:
         q = organism.ask(question)
@@ -395,7 +508,23 @@ def main() -> int:
         print_status(organism)
         return 0
 
-    talked = bool(args.ask or args.feed or args.feed_file or args.new_life)
+    exam_path = None
+    if args.exam:
+        exam_path = Path(config.organism.exam_path if args.exam == "default" else args.exam)
+        if args.exam == "default" and organism.research:
+            console.print("[red]The default exam is about the philosophy of curiosity. Write one for your topic and pass it: --exam my_exam.json[/red]")
+            return 1
+        if not exam_path.is_file():
+            console.print(f"[red]No exam file at {escape(str(exam_path))}[/red]")
+            return 1
+    living = bool(args.forever or args.minutes or args.heartbeats is not None)
+    if exam_path and not living:
+        if not check_ollama(config):
+            return 1
+        print_exam(run_exam(organism, exam_path, label="exam"))
+        return 0
+
+    talked = bool(args.ask or args.feed or args.feed_file or args.new_life or args.papers)
     wants_to_live = args.forever or args.minutes or args.heartbeats is not None or args.reflect or not talked
     if not wants_to_live:
         console.print("Run [bold]python live.py[/bold] to let it think about this.")
@@ -404,7 +533,10 @@ def main() -> int:
         return 1
     console.print(f"[dim]{escape(organism.body.describe())}[/dim]")
     if organism.librarian is not None:
-        console.print("[dim]Web library: on (Wikipedia, Project Gutenberg, Semantic Scholar) - it looks things up when its books are silent.[/dim]")
+        console.print("[dim]Web library: on (Wikipedia, Project Gutenberg, Semantic Scholar, arXiv) - it looks things up when its texts are silent.[/dim]")
+    console.print(f"[dim]Judge: {'off (self-graded)' if organism.judge is None else (config.organism.judge.model or config.llm.model)}[/dim]")
+    if exam_path:
+        console.print(f"[dim]Exam before and after: {escape(str(exam_path))} (exam time does not count toward the session).[/dim]")
     if args.minutes:
         console.print(f"[dim]Living for {args.minutes:g} minutes, then it stops and writes a report. Ctrl+C stops earlier.[/dim]")
 
@@ -422,6 +554,7 @@ def main() -> int:
                 minutes=args.minutes,
                 label=args.label,
                 on_heartbeat=lambda ep: print_heartbeat(organism, ep),
+                exam_path=exam_path,
             )
     except KeyboardInterrupt:
         console.print("\n[dim]Paused. The mind is saved; run again to continue its life.[/dim]")

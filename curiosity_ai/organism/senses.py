@@ -32,7 +32,7 @@ class Observation:
     title: str
     author: str
     text: str
-    kind: Literal["corpus", "inbox", "acquired", "web"]
+    kind: Literal["corpus", "inbox", "acquired", "papers", "web"]
     score: float = 0.0
     note: str = ""  # what kind of source this is, when it is not a primary text
 
@@ -48,7 +48,7 @@ class _Chunk:
     title: str
     author: str
     text: str
-    kind: Literal["corpus", "inbox", "acquired"]
+    kind: Literal["corpus", "inbox", "acquired", "papers"]
     source_key: str
     length: int = 0
     tf: Counter = field(default_factory=Counter)
@@ -84,8 +84,9 @@ class LexicalLibrary:
     """BM25 retrieval over chunked text files: the corpus, the human inbox, and acquired texts.
 
     ``corpus_dirs`` entries are folders, or (folder, kind) pairs with kind
-    "corpus", "inbox" or "acquired". A bare folder named "inbox" counts as the
-    inbox and one named "library" as acquired texts.
+    "corpus", "inbox", "acquired" or "papers" (a researcher's own papers). A
+    bare folder named "inbox" counts as the inbox and one named "library" as
+    acquired texts.
     """
 
     def __init__(
@@ -137,7 +138,7 @@ class LexicalLibrary:
         self._built = True
         return added
 
-    def _index_file(self, path: Path, kind: Literal["corpus", "inbox", "acquired"]) -> int:
+    def _index_file(self, path: Path, kind: Literal["corpus", "inbox", "acquired", "papers"]) -> int:
         raw = path.read_text(encoding="utf-8", errors="ignore")
         meta, body, line_offset = library_body(raw)
         title = meta.get("title") or path.stem.replace("_", " ").title()
@@ -145,6 +146,8 @@ class LexicalLibrary:
         if kind == "acquired":
             prefix = meta.get("cite_as", "LIB")
             note = _ACQUIRED.get(prefix, "acquired text")
+        elif kind == "papers":
+            prefix, note = "DOC", ""
         else:
             prefix, note = ("INBOX", "shared by a human") if kind == "inbox" else ("LOCAL", "")
         added = 0
@@ -219,7 +222,7 @@ class LexicalLibrary:
         """'Author, Title' of every indexed text, for telling the organism what it owns."""
         self._ensure_built()
         seen: dict[str, None] = {}
-        order = {"acquired": 0, "inbox": 1, "corpus": 2}  # its own acquisitions first: they change most
+        order = {"acquired": 0, "inbox": 1, "papers": 2, "corpus": 3}  # its own acquisitions first: they change most
         for chunk in sorted(self._chunks, key=lambda c: order.get(c.kind, 3)):
             seen.setdefault(f"{chunk.author}, {chunk.title}" if chunk.author else chunk.title, None)
         return list(seen)
@@ -309,12 +312,24 @@ class Senses:
         self.rejected_web: list[str] = []
 
     @classmethod
-    def from_config(cls, config: "AppConfig", inbox_dir: Path, library_dir: Path | None = None) -> "Senses":
+    def from_config(
+        cls,
+        config: "AppConfig",
+        inbox_dir: Path,
+        library_dir: Path | None = None,
+        *,
+        papers_dir: Path | None = None,
+        include_corpus: bool = True,
+    ) -> "Senses":
+        """The organism's library. A researcher reads its own papers instead of the philosophy corpus."""
         oc = config.organism
-        if oc.retrieval == "chroma":
+        if oc.retrieval == "chroma" and include_corpus:
             library = ChromaLibrary(config, inbox_dir, library_dir)
         else:
-            dirs = [(Path(config.corpus.path), "corpus"), (inbox_dir, "inbox")]
+            dirs = [(Path(config.corpus.path), "corpus")] if include_corpus else []
+            if papers_dir is not None:
+                dirs.append((papers_dir, "papers"))
+            dirs.append((inbox_dir, "inbox"))
             if library_dir is not None:
                 dirs.append((library_dir, "acquired"))
             library = LexicalLibrary(
@@ -343,8 +358,16 @@ class Senses:
         return self.library.refresh()
 
     def observe(self, question: str, expectations: list[str] | None = None) -> list[Observation]:
-        query = " ".join([question, *(expectations or [])])
-        found = self.library.search(query, k=self.passages, max_per_source=self.max_per_source)
+        """Passages for the question and for the predictions, taken in turn.
+
+        Detailed predictions ("Aristotle: philosophy begins with contemplation of the cosmos") have
+        many words; searched together with the question they can crowd out the passage the
+        question itself points to. So half the passages come from the question alone.
+        """
+        found = self.library.search(question, k=self.passages, max_per_source=self.max_per_source)
+        if expectations:
+            both = self.library.search(" ".join([question, *expectations]), k=self.passages, max_per_source=self.max_per_source)
+            found = _alternate(found, both, k=self.passages, max_per_source=self.max_per_source)
         if self.web is not None:
             found.extend(self._observe_web(question))
         for i, obs in enumerate(found, start=1):
@@ -382,6 +405,26 @@ class Senses:
             if len(kept) >= self.web_results:
                 break
         return kept
+
+
+def _alternate(first: list[Observation], second: list[Observation], *, k: int, max_per_source: int) -> list[Observation]:
+    """Take from the two rankings in turn, without repeating a passage or crowding one source."""
+    out: list[Observation] = []
+    seen: set[str] = set()
+    per_source: Counter = Counter()
+    for pair in zip(first + [None] * len(second), second + [None] * len(first)):
+        for obs in pair:
+            if obs is None or obs.citation in seen:
+                continue
+            source = obs.citation.split(":chunk")[0]
+            if per_source[source] >= max_per_source:
+                continue
+            seen.add(obs.citation)
+            per_source[source] += 1
+            out.append(obs)
+            if len(out) >= k:
+                return out
+    return out
 
 
 def write_inbox_item(inbox_dir: Path, text: str, title: str, when: str) -> Path:

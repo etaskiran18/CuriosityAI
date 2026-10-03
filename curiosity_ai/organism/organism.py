@@ -3,21 +3,29 @@
 One heartbeat is one act of inquiry, modelled on Dewey's "complete act of
 thought" and Peirce's doubt-belief cycle:
 
-    choose   which question pulls hardest (the curiosity drive)
-    predict  commit to an answer and checkable expectations before looking
+    choose   which question pulls hardest (the curiosity drive), favouring
+             questions close to the main topic
+    predict  commit to an answer and to definite predictions, each with a
+             probability, before looking ("may" and "might" cannot be wrong)
     observe  read passages from the library (and the web, if enabled)
-    compare  measure surprise: which expectations were confirmed or contradicted,
-             counting only claims backed by a quote found in the passage
-    argue    an inner dialogue between Wonder and Skeptic
-    settle   revise the answer and confidence, form or doubt beliefs,
-             and let new questions be born from surprise, contradiction and gaps
-    learn    record prediction error and change of mind, which feed the
-             drive's learning-progress and boredom terms
+    compare  which predictions were confirmed or contradicted, counting only
+             claims backed by a quote found in the passage
+    judge    a separate, blind judge checks every claim/quote pair; only what
+             it accepts counts as evidence
+    argue    an inner dialogue: Wonder proposes, Skeptic objects with evidence,
+             Wonder defends, revises or concedes
+    settle   revise the answer (specific enough to be wrong) and confidence,
+             form or doubt beliefs, and let one new question be born
+    learn    record prediction error (Brier score) and change of mind, which
+             feed the drive's learning-progress and boredom terms
 
 Every few heartbeats the organism reflects: it measures its own vital signs,
 diagnoses its way of being curious (healthy wonder, restless curiositas,
 dogmatic slumber or aporetic numbness), adjusts its temperament, wakes
-incubated questions and updates its own theory of curiosity.
+incubated questions and updates its theory.
+
+The same organism can study a research topic a person gives it (researcher
+mode): it then reads the person's papers and asks its own questions about them.
 """
 from __future__ import annotations
 
@@ -34,6 +42,7 @@ from ..utils import strip_front_matter, write_jsonl
 from . import prompts as P
 from .body import Body, Rest
 from .diary import Diary
+from .judge import Judge, Pair, Verdict
 from .librarian import Librarian, ReadingWish
 from .drive import (
     DIAGNOSES,
@@ -49,8 +58,19 @@ from .drive import (
     regulate,
 )
 from .senses import Observation, Senses, write_inbox_item
-from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Temperament, Visit, load_mind, save_mind
-from .textutil import clip, jaccard, one_line, overlap, token_set, verify_quote
+from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Temperament, Topic, Visit, load_mind, save_mind
+from .textutil import (
+    clip,
+    is_hedged,
+    jaccard,
+    keywords_of,
+    one_line,
+    overlap,
+    token_set,
+    topic_relevance,
+    vagueness,
+    verify_quote,
+)
 
 if TYPE_CHECKING:
     from .session import SessionReport
@@ -72,10 +92,34 @@ class OrganismError(RuntimeError):
 
 
 @dataclass
+class Prediction:
+    claim: str
+    author: str = ""
+    probability: float = 0.7
+    hedged: bool = False
+
+    @property
+    def text(self) -> str:
+        """The expectation as shown to the comparer: who will say what (no probability: it could bias)."""
+        if self.author and self.author.lower().strip(". ") not in ("the texts", "texts", "the sources", "unknown", "") \
+                and self.author.lower() not in self.claim.lower():
+            return f"{self.author}: {self.claim}"
+        return self.claim
+
+
+@dataclass
 class Anticipation:
     answer: str = ""
     confidence: float | None = None
-    expectations: list[str] = field(default_factory=list)
+    predictions: list[Prediction] = field(default_factory=list)
+
+    @property
+    def expectations(self) -> list[str]:
+        return [p.text for p in self.predictions]
+
+    @property
+    def probabilities(self) -> list[float]:
+        return [p.probability for p in self.predictions]
 
 
 @dataclass
@@ -84,6 +128,8 @@ class Check:
     status: str = "not_addressed"  # confirmed | contradicted | not_addressed | unverified
     source: str = ""
     quote: str = ""
+    claimed: str = ""  # what the organism itself said, before the judge
+    judge: str = ""  # supports | contradicts | neither | unjudged ("" when no judge)
 
 
 @dataclass
@@ -104,24 +150,45 @@ class Comparison:
                 out[source].append(quote)
         return out
 
-    def scores(self, n_expectations: int) -> tuple[float, float]:
+    def scores(self, predictions: "int | list[float]") -> tuple[float, float]:
         """(surprise, informativeness), both in [0, 1].
 
+        ``predictions`` is the probability given to each expectation (or just
+        their number, meaning certainty). Each prediction the texts addressed
+        scores its Brier error: (1 - p)^2 if confirmed, p^2 if contradicted. A
+        confident prediction that comes true costs almost nothing; a confident
+        one that fails costs a lot; a 50/50 guess always costs 0.25.
+
         Informativeness: how much the texts said about my expectations at all
-        (unexpected findings count half). Surprise: the share of everything I
-        predicted that the texts went against. It equals prediction error
-        (wrong among what was addressed) times informativeness, so texts that
-        stay silent, or only say unrelated things, cannot be very surprising.
+        (unexpected findings count half). Surprise: the summed error over
+        everything I predicted, so texts that stay silent, or only say
+        unrelated things, cannot be very surprising.
         """
-        confirmed = self.count("confirmed")
-        contradicted = self.count("contradicted")
+        probabilities = [1.0] * predictions if isinstance(predictions, int) else [clamp(p) for p in predictions]
+        n = len(probabilities)
         unexpected = len(self.unexpected)
-        if n_expectations == 0:
+        if n == 0:
             return (0.5 if unexpected else 0.0), (0.5 if unexpected else 0.0)
-        total = n_expectations + 0.5 * unexpected
-        informativeness = (confirmed + contradicted + 0.5 * unexpected) / total
-        surprise = (contradicted + 0.5 * unexpected) / total
+        error, addressed = self._errors(probabilities)
+        total = n + 0.5 * unexpected
+        informativeness = (addressed + 0.5 * unexpected) / total
+        surprise = (error + 0.5 * unexpected) / total
         return clamp(surprise), clamp(informativeness)
+
+    def brier(self, probabilities: list[float]) -> float | None:
+        """Mean Brier score over the predictions the texts addressed (None if none were)."""
+        error, addressed = self._errors([clamp(p) for p in probabilities])
+        return error / addressed if addressed else None
+
+    def _errors(self, probabilities: list[float]) -> tuple[float, int]:
+        error, addressed = 0.0, 0
+        for c in self.checks:
+            p = probabilities[c.expectation - 1] if 1 <= c.expectation <= len(probabilities) else 1.0
+            if c.status == "confirmed":
+                error, addressed = error + (1.0 - p) ** 2, addressed + 1
+            elif c.status == "contradicted":
+                error, addressed = error + p ** 2, addressed + 1
+        return error, addressed
 
 
 @dataclass
@@ -140,6 +207,7 @@ class NewQuestion:
 @dataclass
 class Settlement:
     answer: str = ""
+    falsifier: str = ""  # what would show the answer wrong
     confidence: float | None = None
     learned: list[Learned] = field(default_factory=list)
     contradicts: list[str] = field(default_factory=list)
@@ -161,6 +229,7 @@ class CuriosityOrganism:
         senses: Senses | None = None,
         body: Body | None = None,
         librarian: Librarian | None = None,
+        judge_llm: ChatModel | None = None,
     ):
         self.config = config
         self.oc = config.organism
@@ -187,28 +256,105 @@ class CuriosityOrganism:
             boredom_rate=self.oc.boredom_rate,
         )
         self.baseline = Temperament(**self.oc.temperament.model_dump())
+        self.papers_dir = self.home / "papers"
+        self.body = body if body is not None else Body(self.oc.body)
+        self.body.on_rest = self._remember_rest
+        self.judge = self._make_judge(judge_llm)
         state = load_mind(self.mind_path)
         self.newborn = state is None
         self.state = state if state is not None else self._birth()
-        self.senses = senses if senses is not None else Senses.from_config(config, self.inbox_dir, self.library_dir)
-        self.body = body if body is not None else Body(self.oc.body)
-        self.body.on_rest = self._remember_rest
+        self._adopt_topic_defaults()
+        self.persona = P.researcher(self.state.topic.title, self.state.topic.description) if self.research else P.PHILOSOPHY
+        self.topic_words = self._topic_words()
+        if senses is None:
+            senses = Senses.from_config(
+                config,
+                self.inbox_dir,
+                self.library_dir,
+                papers_dir=self.papers_dir if self.research else None,
+                include_corpus=not self.research,
+            )
+        self.senses = senses
         if librarian is None and self.oc.librarian.enabled:
-            librarian = Librarian(self.oc.librarian, self.library_dir, owned_dirs=[Path(config.corpus.path)])
+            owned = [self.papers_dir] if self.research else [Path(config.corpus.path)]
+            librarian = Librarian(self.oc.librarian, self.library_dir, owned_dirs=owned)
         self.librarian = librarian
         self.rest_log: list[Rest] = []
         self.no_thought = 0
         self.last_report: "SessionReport | None" = None
 
+    @property
+    def research(self) -> bool:
+        return self.state.topic.mode == "research"
+
+    def _make_judge(self, judge_llm: ChatModel | None) -> Judge | None:
+        jc = self.oc.judge
+        if not jc.enabled:
+            return None
+        if judge_llm is None and (jc.model or jc.base_url):
+            from ..llm import OllamaClient
+
+            judge_config = self.config.llm.model_copy(update={
+                "model": jc.model or self.config.llm.model,
+                "base_url": jc.base_url or self.config.llm.base_url,
+            })
+            judge_llm = OllamaClient(judge_config)
+        return Judge(
+            judge_llm or self.llm,
+            temperature=jc.temperature,
+            max_tokens=jc.max_tokens,
+            before_thinking=self.body.before_thinking,
+            trace=self._trace,
+        )
+
+    def _adopt_topic_defaults(self) -> None:
+        """A philosophy life studies curiosity; lives born before topics existed learn theirs here."""
+        topic = self.state.topic
+        if topic.mode == "philosophy" and not topic.keywords:
+            tc = self.oc.topic
+            topic.title, topic.description, topic.keywords = tc.title, tc.description, list(tc.keywords)
+
+    def _topic_words(self) -> frozenset[str]:
+        topic = self.state.topic
+        seeds = [q.text for q in self.state.questions.values() if q.trigger in ("seed", "human")]
+        return token_set(" ".join([topic.title, topic.description, *topic.keywords, *seeds]))
+
     # -- life and death ------------------------------------------------------
 
     def _birth(self) -> MindState:
         state = MindState(name=self.oc.name, temperament=self.baseline.model_copy())
-        for text in self.oc.seed_questions:
-            state.add_question(text, trigger="seed", confidence=self.oc.newborn_confidence, importance=0.6)
+        research = self.oc.research
+        if research.topic.strip():
+            state.topic, seeds = self._prepare_research(research.topic.strip(), research.seed_questions)
+            state.topic.until_year = research.until_year
+            state.name = self.oc.name if self.oc.name != "Curiosity" else "Curiosity (researcher)"
+        else:
+            tc = self.oc.topic
+            state.topic = Topic(title=tc.title, description=tc.description, keywords=list(tc.keywords))
+            seeds = list(self.oc.seed_questions)
+        for text in seeds:
+            state.add_question(text, trigger="seed", confidence=self.oc.newborn_confidence, importance=0.6, relevance=1.0)
         save_mind(state, self.mind_path)
         self.diary.birth(state)
         return state
+
+    def _prepare_research(self, topic_text: str, n: int) -> tuple[Topic, list[str]]:
+        """Researcher mode: turn a person's topic into a title, key terms and first questions."""
+        errors: list[str] = []
+        persona = P.researcher(topic_text)
+        user = (
+            f"The research topic, in the person's words: {topic_text}\n\n"
+            f"Give a short title, 10 to 20 key terms, and {n} first questions about this topic."
+        )
+        data = self._json(P.system("TOPIC", persona), user, P.TOPIC_SCHEMA, temperature=0.3, errors=errors, step="topic")
+        title = one_line(_as_str(data.get("title")), 80) or one_line(topic_text, 80)
+        keywords = [one_line(k, 40) for k in _texts(data.get("keywords"), ("term", "keyword", "text")) if 1 <= len(k.split()) <= 4][:20]
+        questions = [q for q in (_clean_question(t) for t in _texts(data.get("questions"), ("question", "text"))) if q][:n]
+        if not keywords:
+            keywords = keywords_of(topic_text, 12).split()
+        if not questions:
+            questions = [topic_text if topic_text.endswith("?") else f"What is known about {topic_text}, and what is still unknown?"]
+        return Topic(mode="research", title=title, description=one_line(topic_text, 600), keywords=keywords), questions
 
     @staticmethod
     def archive(config: AppConfig) -> Path | None:
@@ -238,7 +384,10 @@ class CuriosityOrganism:
             self.diary.asked(existing.id, existing.text, reused=True)
             self.save()
             return existing
-        q = self.state.add_question(text, trigger="human", confidence=self.oc.newborn_confidence, importance=clamp(importance))
+        q = self.state.add_question(
+            text, trigger="human", confidence=self.oc.newborn_confidence, importance=clamp(importance), relevance=1.0
+        )
+        self.topic_words = self._topic_words()
         self.diary.asked(q.id, q.text, reused=False)
         self.save()
         return q
@@ -320,16 +469,37 @@ class CuriosityOrganism:
         minutes: float | None = None,
         label: str | None = None,
         on_heartbeat: Callable[[Episode | None], None] | None = None,
+        exam_path: str | Path | None = None,
     ) -> "SessionReport":
-        """Live as a session and write its report, even if it is interrupted (Ctrl+C)."""
+        """Live as a session and write its report, even if it is interrupted (Ctrl+C).
+
+        With ``exam_path`` it takes the exam before and after living. Exam time
+        does not count toward the session's time limit or its statistics.
+        """
         from .session import Session
 
+        exam_before = None
+        if exam_path:
+            from .exam import run_exam
+
+            exam_before = run_exam(self, exam_path, label=f"{label or 'session'} before")
         session = Session(self, label=label, minutes=minutes)
+        session.exam_before = exam_before
+        completed = interrupted = False
         try:
             self.live(heartbeats, forever=forever, minutes=minutes, on_heartbeat=on_heartbeat)
+            completed = True
         finally:
+            session.stop_clock()
             self.save()
+            if completed and exam_path:
+                try:
+                    session.exam_after = run_exam(self, exam_path, label=f"{label or 'session'} after")
+                except KeyboardInterrupt:
+                    interrupted = True
             self.last_report = session.finish()
+        if interrupted:
+            raise KeyboardInterrupt
         return self.last_report
 
     def heartbeat(self) -> Episode | None:
@@ -371,6 +541,7 @@ class CuriosityOrganism:
 
         observations = self.senses.observe(q.text, anticipation.expectations)
         comparison = self._compare(q, anticipation, observations, errors)
+        judgments = self._judge_comparison(q, comparison, anticipation, observations, errors)
         dialogue = self._dialogue(q, prior_answer, comparison, observations, errors)
         settlement = self._settle(q, prior_answer, prior_confidence, comparison, observations, dialogue, related, errors)
 
@@ -391,7 +562,7 @@ class CuriosityOrganism:
             return episode
 
         episode = self._integrate(
-            q, chosen, prior_answer, prior_confidence, anticipation, observations, comparison, dialogue, settlement, related, errors
+            q, chosen, prior_answer, prior_confidence, anticipation, observations, comparison, dialogue, settlement, related, judgments, errors
         )
         self._maybe_visit_library(q, episode, errors)
         self._record(episode, comparison, observations)
@@ -403,22 +574,74 @@ class CuriosityOrganism:
 
     # -- the steps of one act of inquiry ---------------------------------------
 
+    def _sys(self, step: str) -> str:
+        return P.system(step, self.persona)
+
     def _anticipate(self, q: Question, related: list[Belief], errors: list[str]) -> Anticipation:
+        authors = self._library_authors()
         user = (
             f"Question: {q.text}\n\n"
             f"What you already believe that seems related:\n{self._format_beliefs(related)}\n\n"
             f"Your answer so far (confidence {q.confidence:.2f}): {q.answer or 'none yet'}\n\n"
-            "Before reading any sources, give your best current answer, your confidence, and 2 to 4 specific "
-            "expectations about what the classic texts will say on this question. Each expectation must be "
-            "something a passage of text could confirm or contradict."
+            + (f"Authors in your library: {authors}\n\n" if authors else "")
+            + "Before reading any sources, give your best current answer, your confidence, and 2 to 4 predictions about "
+            f"what {self.persona.sources} will say on this question. For each: who will say it, the claim stated plainly, "
+            "and the probability (0.05 to 0.95) that the texts support it. Each claim must be something a passage "
+            "could confirm or contradict."
         )
-        data = self._json(P.ANTICIPATE, user, P.ANTICIPATE_SCHEMA, temperature=0.4, errors=errors, step="anticipate")
-        expectations = [one_line(e, 300) for e in _texts(data.get("expectations"), ("expectation", "claim", "text")) if len(e.split()) >= 4]
+        data = self._json(self._sys("ANTICIPATE"), user, P.ANTICIPATE_SCHEMA, temperature=0.4, errors=errors, step="anticipate")
+        anticipation = self._parse_anticipation(data)
+        hedged = [i for i, p in enumerate(anticipation.predictions, start=1) if p.hedged]
+        if self.oc.prediction_retry and hedged:
+            listed = "\n".join(f"E{i}: {anticipation.predictions[i - 1].claim}" for i in hedged)
+            retry = user + (
+                f"\n\nYou first wrote these as hedged guesses, which no text could ever prove wrong:\n{listed}\n\n"
+                "Write all your predictions again as definite claims, without may, might, could or possibly. "
+                "Put your doubt into the probability instead."
+            )
+            again = self._parse_anticipation(
+                self._json(self._sys("ANTICIPATE"), retry, P.ANTICIPATE_SCHEMA, temperature=0.3, errors=errors, step="anticipate-retry")
+            )
+            if again.predictions and sum(p.hedged for p in again.predictions) < len(hedged):
+                again.answer = again.answer or anticipation.answer
+                again.confidence = anticipation.confidence if again.confidence is None else again.confidence
+                anticipation = again
+        return anticipation
+
+    def _parse_anticipation(self, data: dict[str, Any]) -> Anticipation:
+        predictions: list[Prediction] = []
+        for item in _as_list(data.get("expectations")):
+            if isinstance(item, dict):
+                claim = _as_str(item.get("claim") or item.get("expectation") or item.get("text") or "")
+                if not claim:
+                    claim = next((v for k, v in item.items() if isinstance(v, str) and k not in ("author", "who", "probability")), "")
+                author = one_line(_as_str(item.get("author") or item.get("who") or ""), 80)
+                raw = item.get("probability", item.get("p"))
+                # "0.05 to 0.95" is the schema hint copied back, not a probability.
+                probability = None if re.search(r"\d\s*(to|-|\u2013)\s*\d", _as_str(raw)) else _confidence(raw)
+            else:
+                claim, author, probability = _as_str(item), "", None
+            claim = re.sub(r"^\s*(E\d+[:.)]|\d+[.)]|[-*])\s*", "", claim).strip()
+            if len(claim.split()) < 4 or claim.lower().startswith(("what they will say", "a specific claim")):
+                continue  # too short to be checked, or the schema hint echoed back
+            if author.lower().startswith("who will say"):
+                author = ""
+            probability = self.oc.default_probability if probability is None else min(0.95, max(0.05, probability))
+            predictions.append(Prediction(one_line(claim, 300), author, probability, is_hedged(claim)))
         return Anticipation(
             answer=one_line(_as_str(data.get("answer")), 600),
             confidence=_confidence(data.get("confidence")),
-            expectations=expectations[:4],
+            predictions=predictions[:4],
         )
+
+    def _library_authors(self, limit: int = 30) -> str:
+        titles = getattr(self.senses.library, "titles", lambda: [])()
+        authors: list[str] = []
+        for title in titles:
+            author = title.split(",")[0].strip() if "," in title else ""
+            if author and author not in authors and author.lower() not in ("wikipedia", "human observer", "unknown"):
+                authors.append(author)
+        return ", ".join(authors[:limit])
 
     def _compare(self, q: Question, anticipation: Anticipation, observations: list[Observation], errors: list[str]) -> Comparison:
         n = len(anticipation.expectations)
@@ -440,7 +663,7 @@ class CuriosityOrganism:
             f"Question: {q.text}\n\nYour expectations before reading:\n{expectation_lines}\n\n"
             f"Passages you have just read:\n\n{self._format_observations(observations)}\n\n{task}"
         )
-        data = self._json(P.COMPARE, user, P.COMPARE_SCHEMA, temperature=0.1, errors=errors, step="compare")
+        data = self._json(self._sys("COMPARE"), user, P.COMPARE_SCHEMA, temperature=0.1, errors=errors, step="compare")
         return self._verify_comparison(data, anticipation.expectations, observations)
 
     def _verify_comparison(self, data: dict[str, Any], expectations: list[str], observations: list[Observation]) -> Comparison:
@@ -482,41 +705,111 @@ class CuriosityOrganism:
                 finding = ""  # the model put the source label where the finding belongs
             finding = one_line(finding, 300) or one_line(quote, 200)
             unexpected.append({"finding": finding, "source": label, "quote": quote})
+        for c in checks.values():
+            c.claimed = c.status
         return Comparison(sorted(checks.values(), key=lambda c: c.expectation), unexpected, rejected)
+
+    def _judge_comparison(
+        self, q: Question, comparison: Comparison, anticipation: Anticipation, observations: list[Observation], errors: list[str]
+    ) -> list[dict[str, Any]]:
+        """The blind judge decides which quotes really confirm or contradict an expectation.
+
+        A quote the judge finds beside the point turns the check into "not
+        addressed"; an unexpected finding it does not accept is dropped. If the
+        judge cannot answer, the organism's own verdicts stand (and say so).
+        """
+        if self.judge is None:
+            return []
+        by_label = {o.label: o for o in observations}
+        items: list[tuple[str, Any]] = []
+        pairs: list[Pair] = []
+        for c in comparison.checks:
+            if c.status in ("confirmed", "contradicted") and c.quote and 1 <= c.expectation <= len(anticipation.expectations):
+                obs = by_label.get(c.source)
+                pairs.append(Pair(anticipation.expectations[c.expectation - 1], c.quote, obs.heading if obs else ""))
+                items.append(("expectation", c))
+        for u in comparison.unexpected:
+            obs = by_label.get(u["source"])
+            claim = u["finding"]
+            if overlap(claim, u["quote"]) >= 0.8:
+                # A "finding" that only copies the quote claims nothing the quote could fail to support:
+                # ask instead whether the passage bears on the question at all.
+                claim = f"This passage bears directly on the question: {q.text}"
+            pairs.append(Pair(claim, u["quote"], obs.heading if obs else ""))
+            items.append(("finding", u))
+        if not pairs:
+            return []
+        verdicts, _ = self.judge.judge(pairs, errors=errors)
+        judgments: list[dict[str, Any]] = []
+        kept: list[dict[str, str]] = []
+        for (kind, item), pair, verdict in zip(items, pairs, verdicts):
+            if kind == "expectation":
+                agent = item.status
+                item.judge = verdict.verdict
+                if verdict.verdict == "supports":
+                    item.status = "confirmed"
+                elif verdict.verdict == "contradicts":
+                    item.status = "contradicted"
+                elif verdict.verdict == "neither":
+                    item.status = "not_addressed"  # the quote stays on record, as evidence for nothing
+            else:
+                agent = "finding"
+                item["judge"] = verdict.verdict
+                if verdict.verdict in ("supports", "unjudged"):
+                    kept.append(item)
+            judgments.append({
+                "kind": kind, "claim": pair.claim, "quote": pair.quote, "source": pair.source,
+                "agent": agent, "judge": verdict.verdict, "reason": verdict.reason,
+            })
+        comparison.unexpected = kept
+        return judgments
 
     def _dialogue(self, q: Question, prior_answer: str, comparison: Comparison, observations: list[Observation], errors: list[str]) -> list[dict[str, str]]:
         findings = self._format_findings(comparison, observations)
+        passages = "\n\n".join(f"[{o.label}] {o.heading}\n{clip(o.text, 700)}" for o in observations) or "(none)"
+        understanding = self._understanding()
         transcript: list[dict[str, str]] = []
         for turn in range(max(0, self.oc.dialogue_turns)):
-            so_far = "\n\n".join(f"{t['voice'].upper()}: {t['text']}" for t in transcript)
+            so_far = "\n\n".join(_turn_line(t) for t in transcript)
             if turn == 0:
-                system, voice, temperature = P.WONDER, "Wonder", 0.7
+                step, voice, temperature = "WONDER", "Wonder", 0.7
                 user = (
                     f"Question: {q.text}\n\nYour answer before reading: {prior_answer or 'none'}\n\n"
                     f"What the texts showed:\n{findings}\n\n"
-                    f"How you currently understand curiosity itself: {self.state.self_model.understanding_of_curiosity}\n\n"
-                    "In at most 120 words: say what puzzles you most here and propose one bold explanation. "
-                    "End with the deepest question this raises."
+                    f"How you currently understand {self.persona.theory}: {understanding}\n\n"
+                    "In at most 120 words: say what puzzles you most here and propose one bold explanation that could "
+                    "turn out to be wrong. End with the deepest question this raises."
                 )
             elif turn % 2 == 1:
-                system, voice, temperature = P.SKEPTIC, "Skeptic", 0.5
+                step, voice, temperature = "SKEPTIC", "Skeptic", 0.5
                 user = (
-                    f"Question: {q.text}\n\nWhat the texts showed:\n{findings}\n\nThe dialogue so far:\n{so_far}\n\n"
-                    "In at most 120 words, as SKEPTIC: name the weakest point in what WONDER just said: a hidden "
-                    "assumption, a counterexample from the passages, or an ambiguous key word. End with the one "
-                    "question WONDER must answer."
+                    f"Question: {q.text}\n\nThe passages:\n\n{passages}\n\nWhat the texts showed:\n{findings}\n\n"
+                    f"The dialogue so far:\n{so_far}\n\n"
+                    "In at most 120 words, as SKEPTIC, without repeating WONDER's words: attack the weakest point of what "
+                    "WONDER just said with evidence. "
+                    "Copy the exact words of a passage above that cuts against it (with its label), or name a thinker in "
+                    "your library who would disagree and say what they would say. Do not object that it is more complex "
+                    "or that other factors matter. End with the one question WONDER must answer."
                 )
             else:
-                system, voice, temperature = P.WONDER, "Wonder", 0.6
+                step, voice, temperature = "WONDER", "Wonder", 0.6
                 user = (
                     f"Question: {q.text}\n\nWhat the texts showed:\n{findings}\n\nThe dialogue so far:\n{so_far}\n\n"
-                    "In at most 100 words of plain prose (no headings or labels), reply to the skeptic: admit what "
-                    "the objection gets right, keep what still holds, and end with one sentence saying where you now stand."
+                    "Begin your reply with exactly one word: DEFEND (the objection fails: show why from the evidence), "
+                    "REVISE (you change one specific part: say which) or CONCEDE (the objection is right). Then, in at "
+                    "most 90 words of plain prose, reply to the skeptic and end with one sentence saying where you now stand."
                 )
-            text = self._text(system, user, temperature=temperature, errors=errors, step=voice.lower())
+            text = self._text(self._sys(step), user, temperature=temperature, errors=errors, step=voice.lower())
             if not text:
                 break
-            transcript.append({"voice": voice, "text": clip(_strip_voice_prefix(text, voice), 1200)})
+            entry = {"voice": voice, "text": clip(_strip_voice_prefix(text, voice), 1200)}
+            if voice == "Skeptic":
+                entry["evidence"] = "quote" if _quotes_a_passage(entry["text"], observations) else ""
+            elif turn > 0:
+                stance, rest = _stance(entry["text"])
+                if stance:
+                    entry["stance"], entry["text"] = stance, rest or entry["text"]
+            transcript.append(entry)
         return transcript
 
     def _settle(
@@ -530,7 +823,7 @@ class CuriosityOrganism:
         related: list[Belief],
         errors: list[str],
     ) -> Settlement:
-        dialogue_text = "\n\n".join(f"{t['voice'].upper()}: {t['text']}" for t in dialogue) or "(no dialogue)"
+        dialogue_text = "\n\n".join(_turn_line(t) for t in dialogue) or "(no dialogue)"
         user = (
             f"Question ({q.id}): {q.text}\n\n"
             f"Your answer before reading (confidence {prior_confidence:.2f}): {prior_answer or 'none'}\n\n"
@@ -538,15 +831,17 @@ class CuriosityOrganism:
             f"Inner dialogue:\n{dialogue_text}\n\n"
             f"Your earlier beliefs that may be related:\n{self._format_beliefs(related)}\n\n"
             "Settle this episode of inquiry:\n"
-            "- answer: your revised answer (1-3 sentences)\n"
+            "- answer: your revised answer (1-3 sentences), specific enough to be wrong\n"
+            "- would_be_wrong_if: one sentence: what finding would show this answer is wrong\n"
             "- confidence: 0.0 to 1.0. Raise it only with support; lower it if you were contradicted or the skeptic found a real weakness\n"
-            "- learned: 0 to 3 new beliefs, one sentence each, each with the source label (S1, S2, ...) that supports it\n"
+            "- learned: 0 to 3 new beliefs, one sentence each, each with the source label (S1, S2, ...) whose quote supports it\n"
             "- contradicts: ids of the earlier beliefs above (like B2) that the evidence contradicts; [] if none\n"
-            "- new_questions: 1 to 3 specific new questions born from a surprise, a contradiction, a gap, or the skeptic's objection\n"
+            "- new_questions: 0 to 2 specific new questions born from a surprise, a contradiction, a gap, or the skeptic's "
+            f"objection, staying close to this question and to {self.state.topic.title}\n"
             "- unanswerable: true only if no evidence or argument could ever settle this question\n"
             "- insight: one sentence about what you learned"
         )
-        data = self._json(P.SETTLE, user, P.SETTLE_SCHEMA, temperature=0.2, errors=errors, step="settle")
+        data = self._json(self._sys("SETTLE"), user, P.SETTLE_SCHEMA, temperature=0.2, errors=errors, step="settle")
         return _parse_settlement(data)
 
     # -- learning from the episode --------------------------------------------
@@ -563,28 +858,41 @@ class CuriosityOrganism:
         dialogue: list[dict[str, str]],
         settlement: Settlement,
         related: list[Belief],
+        judgments: list[dict[str, Any]],
         errors: list[str],
     ) -> Episode:
         st, oc, hb = self.state, self.oc, self.state.heartbeat
-        error, informativeness = comparison.scores(len(anticipation.expectations))
+        probabilities = anticipation.probabilities
+        error, informativeness = comparison.scores(probabilities)
         quotes = comparison.quotes_by_source()
         by_label = {o.label: o for o in observations}
+        support, contradicted = comparison.count("confirmed"), comparison.count("contradicted")
+        stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
+        answer = settlement.answer or anticipation.answer or q.answer
+        vague = vagueness(answer) >= oc.vague_threshold
 
         # Confidence moves in bounded steps, cannot grow without evidence, and can never
-        # rise above what the verified confirmations gathered so far allow.
-        support = comparison.count("confirmed")
+        # rise above what the confirmations the judge accepted so far allow.
         proposed = settlement.confidence if settlement.confidence is not None else prior_confidence
         delta = max(-oc.max_confidence_step, min(oc.max_confidence_step, proposed - prior_confidence))
-        if delta > 0 and support == 0 and not quotes:
-            delta = min(delta, 0.05)
+        if delta > 0 and support == 0:
+            delta = min(delta, 0.05)  # only confirmed predictions make an answer surer, not surprises or side findings
         if delta > 0 and error > 0.5:
             delta = min(delta, 0.10)
+        if stance == "concede":
+            delta = min(delta, 0.0)  # conceding an objection is no reason to be surer
+        elif stance == "revise":
+            delta = min(delta, 0.10)  # a revised answer has not been tested yet
+        if vague:
+            delta = min(delta, 0.0)  # an answer too vague to be wrong earns no confidence
+        elif not settlement.falsifier:
+            delta = min(delta, 0.05)  # nor does one that cannot say what would refute it
         new_confidence = clamp(prior_confidence + delta, 0.02, 0.98)
         ceiling = min(0.95, oc.evidence_ceiling_base + oc.evidence_ceiling_per_support * (support + sum(v.support for v in q.visits)))
         if new_confidence > prior_confidence:
             new_confidence = min(new_confidence, max(prior_confidence, ceiling))
         q.confidence = new_confidence
-        q.answer = settlement.answer or anticipation.answer or q.answer
+        q.answer = answer
         q.visits.append(
             Visit(
                 heartbeat=hb,
@@ -597,15 +905,46 @@ class CuriosityOrganism:
         )
         q.last_visited = hb
 
-        # Beliefs: grounded ones carry verified quotes; the rest are marked as interpretation.
+        # The blind judge checks the new beliefs' quotes, then (separately: small models mix the two
+        # tasks up) rates how central each proposed question is to the topic.
+        learned = settlement.learned[:3]
+        belief_pairs: list[tuple[int, Pair, Observation]] = []
+        for i, item in enumerate(learned):
+            obs = by_label.get(item.source or "")
+            candidates = quotes.get(item.source or "", []) if obs else []
+            if candidates:
+                best = max(candidates, key=lambda quote: overlap(item.belief, quote))
+                belief_pairs.append((i, Pair(item.belief, best, obs.heading), obs))
+        proposals = [nq for nq in settlement.new_questions if not self._same_question(nq.text, q.text)][:3]
+        verdicts: list[Verdict] = []
+        ratings: list[float | None] = []
+        if self.judge is not None and belief_pairs:
+            verdicts, _ = self.judge.judge([pair for _, pair, _ in belief_pairs], errors=errors)
+        if self.judge is not None and proposals:
+            _, ratings = self.judge.judge(
+                [], questions=[nq.text for nq in proposals], topic=f"{st.topic.title}. {st.topic.description}".strip(". "), errors=errors
+            )
+
+        # Beliefs: grounded ones carry a quote the judge accepted; the rest are interpretation.
+        grounding: dict[int, list[Evidence]] = {}
+        for k, (i, pair, obs) in enumerate(belief_pairs):
+            if self.judge is None:
+                grounding[i] = [
+                    Evidence(citation=obs.citation, quote=quote, source_title=obs.heading)
+                    for quote in quotes.get(learned[i].source or "", [])[:2]
+                ]
+                continue
+            verdict = verdicts[k] if k < len(verdicts) else Verdict("unjudged")
+            judgments.append({
+                "kind": "belief", "claim": pair.claim, "quote": pair.quote, "source": pair.source,
+                "agent": "belief", "judge": verdict.verdict, "reason": verdict.reason,
+            })
+            if verdict.verdict == "supports":
+                grounding[i] = [Evidence(citation=obs.citation, quote=pair.quote, source_title=obs.heading)]
         new_beliefs: list[str] = []
         reinforced: list[str] = []
-        for item in settlement.learned[:3]:
-            obs = by_label.get(item.source or "")
-            evidence = [
-                Evidence(citation=obs.citation, quote=quote, source_title=obs.heading)
-                for quote in quotes.get(item.source or "", [])[:2]
-            ] if obs else []
+        for i, item in enumerate(learned):
+            evidence = grounding.get(i, [])
             existing = self._find_similar_belief(item.belief)
             if existing is not None:
                 known = {e.quote for e in existing.evidence}
@@ -641,22 +980,38 @@ class CuriosityOrganism:
                 if other.status == "settled" and bid in other.related_beliefs:
                     self._reopen(other, f"belief {bid}, which it relied on, was contradicted")
 
-        # New questions are born from this episode's surprise, contradiction and gaps.
+        # At most one new question is born, the one closest to the main topic. A question the
+        # judge rates off the topic is set aside; it is noted in the diary but not pursued.
         born: list[str] = []
         woke: list[str] = []
-        for nq in settlement.new_questions[: oc.max_new_questions_per_heartbeat]:
-            if self._same_question(nq.text, q.text):
-                continue  # a restatement of the current question is not a new question
+        set_aside: list[str] = []
+        candidates: list[tuple[float, NewQuestion]] = []
+        for k, nq in enumerate(proposals):
+            rating = ratings[k] if k < len(ratings) else None
+            lexical = topic_relevance(nq.text, self.topic_words)
+            # Set aside only when the judge and the topic's own words agree that it is off the topic:
+            # one confused rating from a small judge must not throw away a good question.
+            relevance = lexical if rating is None else max(rating, lexical)
+            if rating is not None and relevance < oc.topic.min_relevance:
+                set_aside.append(one_line(nq.text, 200))
+                continue
+            candidates.append((relevance, nq))
+        for relevance, nq in sorted(candidates, key=lambda item: -item[0]):
+            if len(born) >= oc.max_new_questions_per_heartbeat:
+                break
             trigger = "contradiction" if doubted and nq.trigger == "gap" else nq.trigger
             question, outcome = self._adopt_question(
-                nq.text, trigger=trigger, parent_id=q.id, importance=nq.importance, inherited_surprise=error
+                nq.text,
+                trigger=trigger,
+                parent_id=q.id,
+                importance=min(nq.importance, q.importance),  # a child does not matter more than its parent
+                inherited_surprise=error,
+                relevance=relevance,
             )
             if question is not None and outcome == "new":
                 born.append(question.id)
             elif question is not None and outcome == "reawakened":
                 woke.append(question.id)
-        if born:
-            q.importance = clamp(q.importance + 0.05 * len(born))
 
         self._update_status(q, settlement)
         self._limit_open_questions()
@@ -670,14 +1025,25 @@ class CuriosityOrganism:
             prior_answer=prior_answer,
             prior_confidence=prior_confidence,
             expectations=anticipation.expectations,
+            predictions=[
+                {"claim": p.claim, "author": p.author, "probability": p.probability, "hedged": p.hedged}
+                for p in anticipation.predictions
+            ],
             checks=[c.__dict__ for c in comparison.checks],
             unexpected=comparison.unexpected,
             rejected_quotes=comparison.rejected_quotes,
             sources=[f"[{o.label}] {o.heading}" for o in observations],
             prediction_error=error,
             informativeness=informativeness,
+            brier=comparison.brier(probabilities),
+            support=support,
+            contradicted=contradicted,
+            judgments=judgments,
             dialogue=dialogue,
+            stance=stance,
             answer=q.answer,
+            falsifier=settlement.falsifier,
+            vague=vague,
             confidence=new_confidence,
             insight=settlement.insight,
             new_belief_ids=new_beliefs,
@@ -686,6 +1052,8 @@ class CuriosityOrganism:
             doubted_belief_ids=doubted,
             new_question_ids=born,
             reawakened_question_ids=woke,
+            set_aside_questions=set_aside,
+            relevance=chosen.relevance,
             status_after=q.status,
             policy=oc.policy,
             errors=errors,
@@ -701,7 +1069,7 @@ class CuriosityOrganism:
     # -- growing the library -------------------------------------------------
 
     def _maybe_visit_library(self, q: Question, episode: Episode, errors: list[str]) -> None:
-        """When its books say little about a question, the organism looks elsewhere."""
+        """When its texts say little about a question, the organism looks elsewhere."""
         lib, cfg = self.librarian, self.oc.librarian
         if lib is None or not episode.expectations or any(e.startswith("compare:") for e in errors):
             return
@@ -711,12 +1079,15 @@ class CuriosityOrganism:
             return
         q.last_library_visit = self.state.heartbeat
         wish = self._reading_wish(q, episode, errors)
+        topic = self.state.topic
         try:
             got = lib.acquire(
                 wish,
-                reason=f"my books said little about {q.id}: {one_line(q.text, 140)}",
+                reason=f"my texts said little about {q.id}: {one_line(q.text, 140)}",
                 question_id=q.id,
                 heartbeat=self.state.heartbeat,
+                context=" ".join([q.text, topic.title, *topic.keywords]),
+                until_year=topic.until_year,
             )
         except Exception as exc:  # the internet is not part of the organism; its absence is not fatal
             errors.append(f"library: {type(exc).__name__}: {one_line(str(exc), 140)}")
@@ -724,27 +1095,33 @@ class CuriosityOrganism:
         episode.acquisitions = [a.label() for a in got]
         episode.library_misses = list(lib.missed)
         episode.library_owned = list(lib.owned)
+        episode.library_busy = list(lib.busy)
+        episode.library_rejected = list(lib.rejected)
         if got:
             self.senses.notice_new_material()
 
     def _reading_wish(self, q: Question, episode: Episode, errors: list[str]) -> ReadingWish:
         titles = getattr(self.senses.library, "titles", lambda: [])()
         owned = "; ".join(titles[:60]) or "(none)"
+        failed = "; ".join(getattr(self.librarian, "failed_searches", [])[-8:])
         user = (
             f"Question: {q.text}\n\n"
             f"The passages you found addressed only {episode.informativeness:.0%} of your expectations.\n\n"
             f"Texts you already have: {owned}\n\n"
-            "Name what to look up (leave a list empty if nothing fits):\n"
+            + (f"Searches that found nothing before (try something different): {failed}\n\n" if failed else "")
+            + "Name what to look up (leave a list empty if nothing fits):\n"
             "- topics: up to 2 encyclopedia topics, each a concept or a thinker in 1-4 words\n"
-            "- books: up to 1 classic book written before 1929, as author and title\n"
-            "- papers: up to 1 short search phrase for scientific papers"
+            + ("" if self.research else "- books: up to 1 classic book written before 1929, as author and title\n")
+            + f"- papers: up to {2 if self.research else 1} sets of 2 to 6 search keywords for scientific papers (not titles)"
         )
-        data = self._json(P.LIBRARIAN, user, P.LIBRARIAN_SCHEMA, temperature=0.3, errors=errors, step="librarian")
+        schema = P.RESEARCH_LIBRARIAN_SCHEMA if self.research else P.LIBRARIAN_SCHEMA
+        data = self._json(self._sys("LIBRARIAN"), user, schema, temperature=0.3, errors=errors, step="librarian")
         topics = [t for t in _texts(data.get("topics"), ("topic", "name", "text")) if 1 <= len(t.split()) <= 6][:2]
-        books = [b for b in _book_queries(data.get("books")) if len(b.split()) >= 2][:1]
-        papers = [p for p in _texts(data.get("papers"), ("query", "phrase", "text")) if len(p.split()) >= 2][:1]
+        books = [] if self.research else [b for b in _book_queries(data.get("books")) if len(b.split()) >= 2][:1]
+        papers = [keywords_of(p, 6) for p in _texts(data.get("papers"), ("query", "keywords", "phrase", "text"))]
+        papers = [p for p in papers if len(p.split()) >= 2][: 2 if self.research else 1]
         if not (topics or books or papers):
-            topics = [q.text]  # without a better idea, look up the question itself
+            topics = [keywords_of(q.text, 4)]  # without a better idea, look up the question's own words
         return ReadingWish(topics, books, papers)
 
     def _update_status(self, q: Question, settlement: Settlement) -> None:
@@ -773,7 +1150,16 @@ class CuriosityOrganism:
         q.last_visited = None
         self._set_status(q, "open", reason)
 
-    def _adopt_question(self, text: str, *, trigger: str, parent_id: str | None, importance: float, inherited_surprise: float) -> tuple[Question | None, str]:
+    def _adopt_question(
+        self,
+        text: str,
+        *,
+        trigger: str,
+        parent_id: str | None,
+        importance: float,
+        inherited_surprise: float,
+        relevance: float | None = None,
+    ) -> tuple[Question | None, str]:
         text = _clean_question(text)
         if not text:
             return None, "rejected"
@@ -791,6 +1177,7 @@ class CuriosityOrganism:
             confidence=self.oc.newborn_confidence,
             importance=clamp(importance),
             inherited_surprise=clamp(inherited_surprise),
+            relevance=None if relevance is None else clamp(relevance),
         )
         return q, "new"
 
@@ -843,7 +1230,10 @@ class CuriosityOrganism:
             self.experience_dir / "sft.jsonl",
             {
                 "messages": [
-                    {"role": "system", "content": "You answer philosophical questions carefully, grounded in the classic texts."},
+                    {"role": "system", "content": (
+                        f"You answer research questions about {self.state.topic.title} carefully, grounded in the papers."
+                        if self.research else "You answer philosophical questions carefully, grounded in the classic texts."
+                    )},
                     {"role": "user", "content": prompt + "\n\nEvidence:\n" + "\n".join(lines)},
                     {"role": "assistant", "content": ep.answer},
                 ],
@@ -875,7 +1265,7 @@ class CuriosityOrganism:
                 f"What you already believe that may be related:\n{self._format_beliefs(related)}\n\n"
                 "What genuinely puzzles you about this observation? Ask 1 or 2 specific questions."
             )
-            data = self._json(P.NOTICE, user, P.NOTICE_SCHEMA, temperature=0.5, errors=errors, step="notice")
+            data = self._json(self._sys("NOTICE"), user, P.NOTICE_SCHEMA, temperature=0.5, errors=errors, step="notice")
             ids: list[str] = []
             for item in _as_list(data.get("questions"))[:2]:
                 text, importance = _question_fields(item)
@@ -907,22 +1297,33 @@ class CuriosityOrganism:
             for e in episodes
         ) or "- (no episodes yet)"
         strongest = sorted(st.held_beliefs(), key=lambda b: -b.confidence)[:6]
+        current = self._understanding()
         user = (
+            f"Your main topic: {st.topic.title}\n\n"
             f"Your recent episodes of inquiry:\n{episode_lines}\n\n"
-            f"Your vital signs: progress rate {vitals.progress_rate:.2f} (share of episodes where your mind changed), "
+            f"Your vital signs: progress rate {vitals.progress_rate:.2f} (share of episodes where evidence changed your mind), "
             f"mean surprise {vitals.mean_surprise:.2f}, diversity {vitals.diversity:.2f} (share of distinct questions), "
-            f"new questions per episode {vitals.births_per_episode:.2f}.\n\n"
+            f"new questions per episode {vitals.births_per_episode:.2f}, questions settled per episode {vitals.settled_per_episode:.2f}, "
+            f"closeness to the main topic {vitals.on_topic:.2f}.\n\n"
             f"Your self-regulation diagnosed: {diagnosis['name']} - {diagnosis['meaning']} ({diagnosis['source']})\n\n"
-            f"Your current understanding of curiosity: {st.self_model.understanding_of_curiosity}\n\n"
+            f"Your current understanding of {self.persona.theory}: {current}\n\n"
             f"Your most confident beliefs:\n{self._format_beliefs(strongest)}\n\n"
             "Reflect honestly, as an inquirer looking at its own habits."
         )
-        data = self._json(P.REFLECT, user, P.REFLECT_SCHEMA, temperature=0.4, errors=errors, step="reflect")
-        understanding = one_line(_as_str(data.get("understanding_of_curiosity")), 900)
+        data = self._json(self._sys("REFLECT"), user, P.REFLECT_SCHEMA, temperature=0.4, errors=errors, step="reflect")
+        understanding = one_line(
+            _as_str(data.get("understanding") or data.get("understanding_of_curiosity") or data.get("understanding_of_topic")), 900
+        )
         reflection = one_line(_as_str(data.get("reflection")), 900)
         focus_text = _as_str(data.get("focus_question"))
+        kept_old = ""
+        if understanding and vagueness(understanding) >= self.oc.vague_threshold:
+            kept_old, understanding = understanding, ""  # too vague to be wrong: keep the theory it had
         if understanding:
-            st.self_model.understanding_of_curiosity = understanding
+            if self.research:
+                st.self_model.understanding_of_topic = understanding
+            else:
+                st.self_model.understanding_of_curiosity = understanding
         st.self_model.last_reflection = reflection
         st.self_model.diagnosis = key
         if reflection:
@@ -944,6 +1345,8 @@ class CuriosityOrganism:
             f"{focus.id} {focus.text}" if focus else None,
             woke,
             rested,
+            theory_label=self.persona.theory,
+            too_vague=kept_old,
         )
         self.save()
         return {"vitals": vitals.as_dict(), "diagnosis": key, "changes": changes, "errors": errors}
@@ -959,8 +1362,22 @@ class CuriosityOrganism:
         out = []
         for q in st.open_questions():
             related = len(self._related_beliefs(q.text, limit=self.settings.anchor_k, include=q.related_beliefs))
-            out.append(read_drive(q, st.temperament, st.heartbeat, related, self.settings))
+            out.append(read_drive(q, st.temperament, st.heartbeat, related, self.settings, self.relevance(q)))
         return out
+
+    def relevance(self, q: Question) -> float:
+        """How directly a question serves the main topic: the judge's rating, or else the topic's words."""
+        if q.relevance is not None:
+            return q.relevance
+        if q.trigger in ("seed", "human"):
+            return 1.0
+        return topic_relevance(q.text, self.topic_words)
+
+    def _understanding(self) -> str:
+        sm = self.state.self_model
+        if self.research:
+            return sm.understanding_of_topic or "I am only beginning to study this topic."
+        return sm.understanding_of_curiosity
 
     # -- helpers ------------------------------------------------------------------
 
@@ -1075,7 +1492,8 @@ class CuriosityOrganism:
 
     def _trace(self, step: str, prompt: str, reply: Any) -> None:
         if self.oc.trace_llm:
-            write_jsonl(self.home / "llm_trace.jsonl", {"heartbeat": self.state.heartbeat, "step": step, "prompt": prompt, "reply": reply})
+            heartbeat = self.state.heartbeat if getattr(self, "state", None) is not None else 0
+            write_jsonl(self.home / "llm_trace.jsonl", {"heartbeat": heartbeat, "step": step, "prompt": prompt, "reply": reply})
 
 
 # ---------------------------------------------------------------------------
@@ -1228,8 +1646,12 @@ def _parse_settlement(data: dict[str, Any]) -> Settlement:
         if text.strip():
             new_questions.append(NewQuestion(text, trigger, importance))
     unanswerable = data.get("unanswerable")
+    falsifier = one_line(_as_str(data.get("would_be_wrong_if") or data.get("falsifier") or ""), 400)
+    if falsifier.lower().startswith(("one sentence", "what finding")) or len(falsifier.split()) < 4:
+        falsifier = ""  # the schema hint echoed back, or nothing that could be checked
     return Settlement(
         answer=one_line(_as_str(data.get("answer")), 800),
+        falsifier=falsifier,
         confidence=_confidence(data.get("confidence")),
         learned=learned,
         contradicts=contradicts,
@@ -1253,3 +1675,27 @@ def _strip_voice_prefix(text: str, voice: str) -> str:
     """Remove a leading "SKEPTIC:" and anything the model wrote for the other voice."""
     text = re.sub(rf"^\s*\**{voice}\**\s*:\s*", "", text.strip(), flags=re.IGNORECASE)
     return re.split(r"\n\s*\**(?:WONDER|SKEPTIC)\**\s*:", text, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+
+
+def _stance(text: str) -> tuple[str, str]:
+    """'CONCEDE: you are right...' -> ('concede', 'you are right...')."""
+    match = re.match(r"\s*[*_]*\s*(DEFEND|REVISE|CONCEDE)[A-Z]*[*_]*\s*[:.,;\-\u2013\u2014]?\s*", text, re.IGNORECASE)
+    if not match:
+        return "", text
+    rest = text[match.end():].strip()
+    rest = re.sub(r"^\([^)]{0,120}\)\s*[:.\-]?\s*", "", rest)  # the instruction copied back: "(the objection fails: ...)"
+    return match.group(1).lower(), rest
+
+
+def _turn_line(turn: dict[str, str]) -> str:
+    stance = f" ({turn['stance']}s)" if turn.get("stance") else ""
+    return f"{turn['voice'].upper()}{stance}: {turn['text']}"
+
+
+def _quotes_a_passage(text: str, observations: list[Observation]) -> bool:
+    """Did the skeptic copy real words from a passage it was shown?"""
+    for quoted in re.findall(r'"([^"]{20,400})"|\u201c([^\u201d]{20,400})\u201d', text):
+        fragment = next((part for part in quoted if part), "")
+        if any(verify_quote(fragment, o.text) for o in observations):
+            return True
+    return False
