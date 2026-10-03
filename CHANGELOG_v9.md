@@ -193,5 +193,7 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
 * **From the final validation run**: predictions name only authors the library has (mistral wrote "Dewey
   found that ...", taken from the template's example, and "Smith's research shows that ..."); the
   person's own work found online is not fetched again as somebody's paper (the stand-in draft came back
-  from arXiv); "would be wrong if ... independently of ..." counts as a strawman.
+  from arXiv); "would be wrong if ... independently of ..." counts as a strawman; a source label such as
+  "[S1]" becomes the text's short title (cutting it out left beliefs such as "The model in considers ...",
+  and answers in the map kept a bare "[S1]" that meant nothing outside its heartbeat).
 
