@@ -14,6 +14,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -119,7 +121,7 @@ def pdf_text(path: Path, *, max_pages: int = 300) -> tuple[dict[str, str], str]:
     title = _clean_meta(getattr(info, "title", None) if info else None)
     author = _clean_meta(getattr(info, "author", None) if info else None)
     body = "\n\n".join(pages)
-    if not title or _looks_like_header(title) or re.search(r"microsoft word|untitled|\.docx?$|\.tex$|^paper$", title, re.IGNORECASE):
+    if not title or _looks_like_header(title) or not _mostly_latin(title) or re.search(r"microsoft word|untitled|\.docx?$|\.tex$|^paper$", title, re.IGNORECASE):
         title = _first_title_line(body) or path.stem.replace("_", " ")
     return {"title": title, "author": author, "pages": str(len(reader.pages))}, body
 
@@ -129,13 +131,39 @@ def clean_pdf_text(text: str) -> str:
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
     text = text.replace(" ", " ").replace("ﬁ", "fi").replace("ﬂ", "fl")
     text = re.sub(r"[ \t]+", " ", text)
+    text = _rejoin_letter_spaced(text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _rejoin_letter_spaced(text: str) -> str:
+    """'interactio n' and 'i n' (letter-spaced PDF text) become 'interaction' and 'in'.
+
+    Only when the joined word occurs elsewhere in the same text, so "the frequency of f" stays as it is
+    unless the text also has "off".
+    """
+    vocabulary = Counter(re.findall(r"[a-z]+", text.lower()))
+
+    def known(word: str) -> bool:
+        w = word.lower()
+        return bool(vocabulary.get(w) or vocabulary.get(w + "s") or (w.endswith("s") and vocabulary.get(w[:-1])))
+
+    lines = []
+    for line in text.split("\n"):
+        words: list[str] = []
+        for word in line.split(" "):
+            if words and len(word) == 1 and word.islower() and words[-1].isalpha() and known(words[-1] + word):
+                words[-1] += word
+            else:
+                words.append(word)
+        lines.append(" ".join(words))
+    return "\n".join(lines)
 
 
 _HEADER_START = (
     "abstract", "arxiv", "doi", "http", "www", "received", "accepted", "published", "citation", "keywords",
     "key points", "volume", "vol.", "journal", "research article", "original article", "original paper",
     "article", "letter", "copyright", "open access", "cite this", "correspondence", "page ",
+    "manuscript", "submitted to", "preprint", "draft", "confidential", "running title", "running head",
 )
 
 
@@ -149,18 +177,43 @@ def _looks_like_header(line: str) -> bool:
         or any(mark in line for mark in ("|", "\u00a9", "c\u00a9", "(c)"))
         or bool(re.search(r"\(\d{4}\)\s*\d+\s*[:,]", line))  # "(2001) 19: 147"
         or bool(re.search(r"\bdoi\b|\bissn\b|\bvol\.|\bpp\.", low))
-        or (len(letters) > 8 and sum(c.isupper() for c in letters) / len(letters) > 0.8)  # SHOUTED
+        or (len(letters) > 8 and len(line.split()) <= 5 and sum(c.isupper() for c in letters) / len(letters) > 0.8)  # a SHOUTED banner
     )
 
 
+def _mostly_latin(line: str) -> bool:
+    letters = [c for c in line if c.isalpha()]
+    return bool(letters) and sum(unicodedata.name(c, "").startswith("LATIN") for c in letters) >= 0.7 * len(letters)
+
+
 def _first_title_line(body: str) -> str:
-    for line in body.splitlines()[:25]:
-        line = line.strip()
-        if line.startswith("[page") or not line or _looks_like_header(line):
-            continue
+    lines = [line.strip() for line in body.splitlines()[:26]]
+    for i, line in enumerate(lines[:25]):
+        if line.startswith("[page") or not line or _looks_like_header(line) or not _mostly_latin(line):
+            continue  # a running header, or a line in another script (a journal's banner)
         if 3 <= len(line.split()) <= 25:
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            if _continues_title(line, nxt):
+                return f"{line} {nxt}"  # a title wrapped onto a second line
             return line
     return ""
+
+
+def _continues_title(line: str, nxt: str) -> bool:
+    """Is ``nxt`` the rest of a title that wrapped? ("... distribution in the" / "equatorial region of magnetosphere")
+
+    Not when the first line ends a sentence, nor when the next line looks like authors (initials, commas,
+    affiliation numbers) or a header.
+    """
+    if not nxt or line.endswith((".", ":", "?", "!")) or len(nxt.split()) > 12:
+        return False
+    if line.isupper() and nxt.isupper():  # a title set in capitals continues in capitals
+        return not re.search(r"[\d,;@|]", nxt)
+    if _looks_like_header(nxt):
+        return False
+    if nxt[0].islower():
+        return True
+    return not re.search(r"[\d,;@]|\b[A-Z]\.", nxt)
 
 
 def _clean_meta(value: object) -> str:

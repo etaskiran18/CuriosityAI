@@ -347,3 +347,34 @@ def test_what_a_person_shares_in_philosophy_mode_is_still_evidence(config):
     path = org.feed("Wonder is the feeling of a philosopher, said my teacher.", "A note")
     assert "own:" not in path.read_text(encoding="utf-8")
 
+
+# -- titles and words from real PDFs -------------------------------------------------------------
+
+
+def test_letter_spaced_words_are_rejoined_only_when_the_text_knows_the_word():
+    from curiosity_ai.organism.papers import clean_pdf_text
+
+    text = ("A reconstruction method of electron density distribution i n the equatorial region\n"
+            "Resonant and non-resonant whistlers-particle interactio n in the radiation belts\n"
+            "Wave interactions in the plasma. The frequency of f is fixed.")
+    cleaned = clean_pdf_text(text)
+    assert "distribution in the" in cleaned and "particle interaction in" in cleaned
+    assert "frequency of f is" in cleaned  # "off" never occurs: nothing to join
+
+
+@pytest.mark.parametrize("body, title", [
+    ("manuscript submitted to Journal of Geophysical Research - Space Physics\nThe source regions of whistlers\n"
+     "D. I. Golden1, M. Spasojevic1", "The source regions of whistlers"),
+    ("manuscript accepted by JGR-Space Physics\nVLF transmitters as tools for monitoring the\nplasmasphere\n"
+     "Alain Bhattacharya1, Pierre-Louis Blelly2", "VLF transmitters as tools for monitoring the plasmasphere"),
+    ("NUMERICAL SIMULATIONS OF THE EFFECT OF LOCALISED IONOSPHERIC\nPERTURBATIONS ON SUBIONOSPHERIC VLF PROPAGATION\n"
+     "DESANKA SULIC1, ALEKSANDRA NINA1 AND VLADIMIR A. SRECKOVIC1",
+     "NUMERICAL SIMULATIONS OF THE EFFECT OF LOCALISED IONOSPHERIC PERTURBATIONS ON SUBIONOSPHERIC VLF PROPAGATION"),
+    ("SCIENCE ADVANCES | RESEARCH ARTICLE\nSpecularly reflected whistler: A low-latitude channel to couple lightning\n"
+     "energy to the magnetosphere\nShen Bao, Lv Wang", "Specularly reflected whistler: A low-latitude channel to couple lightning energy to the magnetosphere"),
+])
+def test_a_title_is_found_past_banners_and_across_a_line_break(body, title):
+    from curiosity_ai.organism.papers import _first_title_line
+
+    assert _first_title_line(body) == title
+
