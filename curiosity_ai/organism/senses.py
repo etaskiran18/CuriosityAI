@@ -279,6 +279,11 @@ class LexicalLibrary:
                 seen[chunk.source_key] = chunk.text[:1200]
         return list(seen.values())
 
+    def authors(self) -> list[str]:
+        """The authors of every indexed text (who could really be quoted)."""
+        self._ensure_built()
+        return list(dict.fromkeys(chunk.author for chunk in self._chunks if chunk.author))
+
     def titles(self) -> list[str]:
         """'Author, Title' of every indexed text, for telling the organism what it owns."""
         self._ensure_built()
@@ -320,6 +325,9 @@ class ChromaLibrary:
 
     def titles(self) -> list[str]:
         return self.inbox.titles()
+
+    def authors(self) -> list[str]:
+        return self.inbox.authors()
 
     def refresh(self) -> int:
         return self.inbox.refresh()

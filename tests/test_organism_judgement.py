@@ -8,7 +8,7 @@ import pytest
 
 from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.judge import Judge, Pair, rating_of, verdict_of
-from curiosity_ai.organism.organism import Check, Comparison, _name_sources, _quotes_a_passage, _stance
+from curiosity_ai.organism.organism import Check, Comparison, _name_sources, _quotes_a_passage, _stance, _without_belief_labels
 from curiosity_ai.organism.senses import Observation
 from curiosity_ai.organism.state import Evidence
 from curiosity_ai.organism.textutil import is_hedged, is_influence_only, is_non_answer, is_strawman_falsifier, lexically_related, token_set, vagueness
@@ -337,6 +337,11 @@ def test_a_quoted_passage_that_cites_others_is_not_a_citation_from_memory():
     assert not _cites_from_memory('[S4] says: "the whistler intensity was measured by Inan et al., 1990 on board the satellite"')
     assert _cites_from_memory('As shown by Inan et al. (1990), whistlers precipitate electrons.')
     assert _cites_from_memory('Nakamura et al., "Whistler observations of the inner magnetosphere", show it.')
+    # the passage it read cites Singh itself: a paraphrase of that citation is not one from memory
+    skeptic = "In [S2], Singh et al. (1992, 1993) state that the dispersion of whistlers yields the electron density."
+    assert _cites_from_memory(skeptic)
+    assert not _cites_from_memory(skeptic, ["The dispersion property (Singh et al., 1992, 1993, 1997) is widely used."])
+    assert _cites_from_memory(skeptic, ["The dispersion property (Sazhin et al., 1992) is widely used."])
 
 
 # -- after the third research run ---------------------------------------------------------
@@ -421,6 +426,25 @@ def test_a_belief_resting_on_a_text_yields_only_to_a_contradiction(config):
     assert ep.contradicted == 1 and ep.doubted_belief_ids == [] and ep.paper_doubt_ids == [belief.id]
 
 
+
+def test_a_belief_a_text_has_just_repeated_is_not_doubted(config):
+    """mistral doubted, and retracted, "The interaction between electrons and the primary whistler wave packet plays a
+    role ..." in the heartbeats in which the judge accepted "The electrons interacted with the primary whistler wave
+    packet" for a prediction."""
+    def live(statement: str):
+        org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(contradicts=["B1"])))
+        belief = org.state.add_belief(statement, confidence=0.35)  # an interpretation: an argument alone may doubt it
+        return org, belief, org.heartbeat()
+
+    org, belief, ep = live("Wonder is the feeling of a philosopher, and philosophy begins in wonder.")
+    assert ep.doubted_belief_ids == [] and ep.agreed_doubt_ids == [belief.id]
+    assert org.state.beliefs[belief.id].status == "held" and org.state.beliefs[belief.id].confidence == pytest.approx(0.35)
+    assert "says much the same: no reason for doubt" in (org.home / "diary.md").read_text(encoding="utf-8")
+    config.organism.home += "-other"
+    org, belief, ep = live("Wonder and curiosity are the same thing, as Plato says.")
+    assert ep.doubted_belief_ids == [belief.id] and ep.agreed_doubt_ids == []
+
+
 # -- after the fourth research run --------------------------------------------------------
 
 TOPIC = token_set("lightning whistlers VLF inner magnetosphere plasmapause radiation belt electromagnetic energy ionosphere plasma")
@@ -500,6 +524,14 @@ def test_a_source_label_becomes_the_texts_name(text, belief, answer):
     assert _name_sources(text, _SOURCES, keep_citations=False) == belief
     if answer is not None:
         assert _name_sources(text, _SOURCES, keep_citations=True) == answer
+
+
+def test_the_theory_says_guess_without_labels():
+    """The map's reader does not know what [B4] is."""
+    theory = "These waves are affected by diffraction (guess: [B4]), and their properties reveal density (guess: [B5], [B6])."
+    assert _without_belief_labels(theory) == "These waves are affected by diffraction (a guess), and their properties reveal density (a guess)."
+    assert _without_belief_labels("Whistlers reveal the density [B3].") == "Whistlers reveal the density."
+    assert _without_belief_labels("A text says so (S1).") == "A text says so (S1)."
 
 
 def test_beliefs_and_answers_name_their_texts(config):
@@ -613,9 +645,11 @@ def test_an_author_the_library_does_not_have_is_dropped_from_a_prediction(config
         {"author": "Smith", "claim": "Smith's research shows that changes in electron density alter the speed of whistlers", "probability": 0.8},
         {"author": "Plato", "claim": "Plato holds that philosophy begins in wonder", "probability": 0.7},
         {"author": "Johnson", "claim": "According to Johnson et al. (2019), whistlers start near the equator", "probability": 0.6},
+        {"author": "Theaetetus", "claim": "Wonder is the feeling of a philosopher", "probability": 0.7},
     ]})
-    smith, plato, johnson = parsed.predictions
+    smith, plato, johnson, title = parsed.predictions
     assert smith.author == "" and smith.claim == "Changes in electron density alter the speed of whistlers"
     assert plato.author == "Plato" and plato.claim.startswith("Plato holds")  # Plato is in the library
     assert johnson.author == "" and johnson.claim == "Whistlers start near the equator"
+    assert title.author == ""  # a title's first word is nobody's name (mistral made "Thunderstorms" an author)
 

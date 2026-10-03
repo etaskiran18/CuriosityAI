@@ -695,9 +695,10 @@ class CuriosityOrganism:
         return anticipation
 
     def _known_names(self) -> frozenset[str]:
-        """Every name-like word in the library's 'Author, Title' list: who could really be quoted."""
-        titles = getattr(self.senses.library, "titles", lambda: [])()
-        return frozenset(w.lower() for t in titles for w in re.findall(r"\b[A-Z][\w'’-]+", t))  # "Tu", "Li" count too
+        """Every name-like word among the library's authors: who could really be quoted. (Not the titles: mistral
+        made "Thunderstorms", the first word of a title, the author of its predictions.)"""
+        authors = getattr(self.senses.library, "authors", lambda: [])()
+        return frozenset(w.lower() for a in authors for w in re.findall(r"\b[A-Z][\w'’-]+", a))  # "Tu", "Li" count too
 
     def _parse_anticipation(self, data: dict[str, Any]) -> Anticipation:
         predictions: list[Prediction] = []
@@ -925,7 +926,7 @@ class CuriosityOrganism:
             if not text:
                 break
             entry = {"voice": voice, "text": clip(_strip_voice_prefix(text, voice), 1200)}
-            if _cites_from_memory(entry["text"]):
+            if _cites_from_memory(entry["text"], [o.text for o in observations]):
                 entry["citations"] = "unverified"  # papers it was not shown, cited from memory: possibly invented
             if voice == "Skeptic":
                 entry["evidence"] = "quote" if _quotes_a_passage(entry["text"], observations) else ""
@@ -1141,13 +1142,21 @@ class CuriosityOrganism:
         # contradicted nothing: Peirce's "paper doubt", not the real doubt a surprising fact brings.
         doubted: list[str] = []
         paper_doubts: list[str] = []
+        agreed_doubts: list[str] = []
         shown = {b.id for b in related}
+        # A 7B model doubted "The interaction between electrons and the primary whistler wave packet plays a role
+        # in ..." twice, and retracted it, in the heartbeats in which the judge accepted "The electrons interacted
+        # with the primary whistler wave packet" for a prediction: what a text has just said is no reason for doubt.
+        agreeing = [c.quote for c in comparison.checks if c.status == "confirmed" and c.quote]
         for bid in settlement.contradicts:
             belief = st.beliefs.get(bid)
             if belief is None or bid not in shown or bid in new_beliefs or bid in reinforced:
                 continue
             if not belief.interpretive and surprising == 0:
                 paper_doubts.append(bid)
+                continue
+            if any(lexically_related(belief.statement, quote, self.topic_words, floor=0.5) for quote in agreeing):
+                agreed_doubts.append(bid)
                 continue
             belief.confidence = clamp(belief.confidence - 0.15)
             belief.status = "retracted" if belief.confidence < 0.15 else "doubted"
@@ -1245,6 +1254,7 @@ class CuriosityOrganism:
             reinforced_belief_ids=reinforced,
             doubted_belief_ids=doubted,
             paper_doubt_ids=paper_doubts,
+            agreed_doubt_ids=agreed_doubts,
             new_question_ids=born,
             reawakened_question_ids=woke,
             set_aside_questions=set_aside,
@@ -1537,13 +1547,14 @@ class CuriosityOrganism:
             f"Your beliefs that rest on quotes:\n{self._format_beliefs(grounded)}\n\n"
             f"Your guesses (beliefs no quote supports yet):\n{self._format_beliefs(guesses)}\n\n"
             "Reflect honestly, as an inquirer looking at its own habits. Build your theory from what the texts "
-            "support; you may add one guess, but call it a guess. Your focus question must be one a paper could answer."
+            "support; you may add one guess, but call it a guess. Write in plain words, without labels such as [B1]. "
+            "Your focus question must be one a paper could answer."
         )
         data = self._json(self._sys("REFLECT"), user, P.REFLECT_SCHEMA, temperature=0.4, errors=errors, step="reflect")
-        understanding = one_line(
+        understanding = _without_belief_labels(one_line(
             _as_str(data.get("understanding") or data.get("understanding_of_curiosity") or data.get("understanding_of_topic")), 900
-        )
-        reflection = one_line(_as_str(data.get("reflection")), 900)
+        ))
+        reflection = _without_belief_labels(one_line(_as_str(data.get("reflection")), 900))
         focus_text = _as_str(data.get("focus_question"))
         kept_old = ""
         if understanding and (vagueness(understanding) >= self.oc.vague_threshold or is_non_answer(understanding)):
@@ -1939,6 +1950,17 @@ def _name_sources(text: str, by_label: dict[str, Observation], *, keep_citations
     return named[:1].upper() + named[1:] if named and not text[:1].islower() else named
 
 
+_GUESS_MARK = re.compile(r"\(\s*guess(?:es)?\s*:?\s*(?:\[?B\d+\]?(?:\s*(?:,|and)\s*\[?B\d+\]?)*)?\s*\)", re.IGNORECASE)
+_BELIEF_LABEL = re.compile(r"\s*[\[(]\s*B\d+(?:\s*(?:,|and)\s*B\d+)*\s*[\])]")
+
+
+def _without_belief_labels(text: str) -> str:
+    """'... diffraction processes (guess: [B4]).' -> '... diffraction processes (a guess).' The person reading the
+    theory in the map does not know what B4 is."""
+    text = _BELIEF_LABEL.sub("", _GUESS_MARK.sub("(a guess)", text))
+    return re.sub(r"\s+([.,;:])", r"\1", re.sub(r"[ \t]{2,}", " ", text)).strip()
+
+
 def _statement(answer: str) -> str:
     """An answer that is a question ("Can we infer thresholds ...?") answers nothing: the old answer stays."""
     return "" if answer.rstrip().endswith("?") else answer
@@ -2053,11 +2075,20 @@ _MEMORY_CITATION = re.compile(
 _QUOTED = re.compile(r'"[^"]{20,}"|“[^”]{20,}”')
 
 
-def _cites_from_memory(text: str) -> bool:
+def _cites_from_memory(text: str, passages: list[str] | None = None) -> bool:
     """A reference such as 'T. Nakamura et al., "Whistler Observations...", JGR vol. 82' was not among the passages.
 
     A reference that begins inside quotation marks is left out: a passage it quotes may itself cite others
     ("Inan et al., 1990"). A quoted title after "et al.," still counts, since the reference begins outside.
+    "Singh et al. (1992)" is left out too when a passage it read cites Singh.
     """
     quoted = [(m.start(), m.end()) for m in _QUOTED.finditer(text)]
-    return any(not any(start < m.start() < end for start, end in quoted) for m in _MEMORY_CITATION.finditer(text))
+    shown = " ".join(passages or [])
+    for m in _MEMORY_CITATION.finditer(text):
+        if any(start < m.start() < end for start, end in quoted):
+            continue
+        name = re.search(r"([A-Z][\w'’-]+)\s*$", text[max(0, m.start() - 40):m.start()])
+        if name and re.search(rf"\b{re.escape(name.group(1))}\b", shown):
+            continue
+        return True
+    return False

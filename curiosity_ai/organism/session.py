@@ -178,7 +178,7 @@ def compute_metrics(
         "beliefs_grounded": sum(e.grounded_new_beliefs for e in episodes),
         "beliefs_interpretive": sum(len(e.new_belief_ids) - e.grounded_new_beliefs for e in episodes),
         "beliefs_doubted": sum(len(e.doubted_belief_ids) for e in episodes),
-        "paper_doubts": sum(len(e.paper_doubt_ids) for e in episodes),
+        "paper_doubts": sum(len(e.paper_doubt_ids) + len(e.agreed_doubt_ids) for e in episodes),
         "own_claims_met": sum(1 for e in episodes for c in e.checks if c.get("status") == "own"),
         "beliefs_reinforced": sum(len(e.reinforced_belief_ids) for e in episodes),
         "quotes_verified": verified,

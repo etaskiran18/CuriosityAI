@@ -184,6 +184,7 @@ class Episode(BaseModel):
     reinforced_belief_ids: list[str] = Field(default_factory=list)
     doubted_belief_ids: list[str] = Field(default_factory=list)
     paper_doubt_ids: list[str] = Field(default_factory=list)  # beliefs resting on a text it wanted to doubt with no contradiction
+    agreed_doubt_ids: list[str] = Field(default_factory=list)  # beliefs it wanted to doubt that a quote accepted just now repeats
     new_question_ids: list[str] = Field(default_factory=list)
     reawakened_question_ids: list[str] = Field(default_factory=list)
     set_aside_questions: list[str] = Field(default_factory=list)  # proposed, but off the topic
