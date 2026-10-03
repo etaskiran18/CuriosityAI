@@ -56,10 +56,17 @@ def check_ollama(config: AppConfig) -> bool:
         return False
     names = {m.get("name", "") for m in resp.json().get("models", [])}
     model = config.llm.model
-    if _is_model(names, model):
-        return True
-    console.print(f"[red]Model '{escape(model)}' is not installed in Ollama.[/red] Install it with:  [bold]ollama pull {escape(model)}[/bold]")
-    return False
+    if not _is_model(names, model):
+        console.print(f"[red]Model '{escape(model)}' is not installed in Ollama.[/red] Install it with:  [bold]ollama pull {escape(model)}[/bold]")
+        return False
+    judge = config.organism.judge
+    on_this_server = not judge.base_url or judge.base_url.rstrip("/") == base
+    if judge.enabled and judge.model and on_this_server and not _is_model(names, judge.model):
+        # Without its judge nothing would count as evidence: better to stop now than to waste the hour.
+        console.print(f"[red]Judge model '{escape(judge.model)}' is not installed in Ollama.[/red] Install it with:  "
+                      f"[bold]ollama pull {escape(judge.model)}[/bold]  (or leave out --judge-model)")
+        return False
+    return True
 
 
 def _is_model(names: set[str], model: str) -> bool:

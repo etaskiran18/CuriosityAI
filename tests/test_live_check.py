@@ -77,3 +77,19 @@ def test_your_own_article_can_be_shared_as_a_pdf_and_is_not_read_twice(tmp_path)
     assert title == "Lightning and the inner magnetosphere" and "[page 1]" in text
     report = ingest_papers(folder, tmp_path / "home" / "papers", skip={folder / "main.pdf"})
     assert report.added == ["other.pdf"] and report.skipped == ["main.pdf"]
+
+
+class Tags(Reply):
+    def raise_for_status(self):
+        pass
+
+
+def test_a_judge_model_that_is_not_installed_stops_the_run_at_once(monkeypatch, config):
+    monkeypatch.setattr(live.requests, "get", lambda url, timeout=5: Tags({"models": [{"name": "mistral:7b-instruct"}]}))
+    config.llm.model = "mistral:7b-instruct"
+    assert live.check_ollama(config)
+    config.organism.judge.model = "qwen2.5:14b"
+    assert not live.check_ollama(config)  # without its judge nothing would count as evidence
+    monkeypatch.setattr(live.requests, "get", lambda url, timeout=5: Tags({"models": [{"name": "mistral:7b-instruct"}, {"name": "qwen2.5:14b"}]}))
+    assert live.check_ollama(config)
+
