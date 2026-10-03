@@ -82,6 +82,13 @@ The run also found problems, fixed before release:
   one short extra call per text a search finds. A first threshold, "useful" (2 of 3), refused even
   "Plasmasphere" and left the library empty, so background (1 of 3) is kept.
 * **Paper titles** no longer come from journal headers ("SCIENCE ADVANCES | RESEARCH ARTICLE").
+* **It learns what the topic means before it asks.** Given only "How does lightning illuminate the
+  inner magnetosphere?", it took "illuminate" for light and asked about light emission and "faint
+  emissions" for a whole run. A new research life now reads how the person's article and papers begin
+  and writes one sentence on what the topic means in its field; that sentence goes into every prompt,
+  the diary and the research map. With the same topic and two space-physics papers, its first questions
+  went from "the intensity of illumination" to how lightning-generated whistler waves propagate and
+  are detected.
 * **Quotes from PDFs**: a sentence copied cleanly from text with layout noise inside (citation marks, a
   word from the next column) counts; 11 of its 12 claimed quotes had been rejected.
 * **A busy source is named** in the diary (Semantic Scholar, arXiv or Wikipedia), and a busy site rests

@@ -512,6 +512,8 @@ def main() -> int:
         console.print(f"[red]There is no file at {escape(str(feed_path))}.[/red]")
         console.print(escape(PATH_HINT))
         return 1
+    if args.topic and feed_path is not None:
+        config.organism.research.own_article = str(feed_path)  # a new life reads its beginning to learn what the topic means
     # A paper you share as yours (--feed-file) is not read a second time as one of the papers.
     if args.papers and ingest(config, args.papers, skip={feed_path.resolve()} if feed_path else None):
         console.print("[red]No papers could be read; check the folder.[/red]")
@@ -528,6 +530,9 @@ def main() -> int:
                       f"with {len(organism.state.questions)} questions:")
         for q in organism.state.questions.values():
             console.print(f"  {q.id} {escape(q.text)}")
+        if organism.state.topic.meaning:
+            console.print(f"It takes the topic to mean: [italic]{escape(organism.state.topic.meaning)}[/italic]")
+            console.print("[dim]If that is not what you mean, start again with --new-life and write the topic in your field's words.[/dim]")
     elif args.topic and organism.state.topic.description != one_line(args.topic, 600):
         console.print(f"[yellow]This life already studies '{escape(organism.state.topic.title)}'; it continues. "
                       "Use --new-life (or another --home) for a new topic.[/yellow]")

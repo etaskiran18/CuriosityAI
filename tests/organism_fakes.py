@@ -196,6 +196,7 @@ class ScriptedLLM:
             return {"grade": self.grade, "reason": "scripted"}
         if step == "TOPIC":
             return {
+                "meaning": "How lithium-ion cells lose capacity and power as they are cycled and stored.",
                 "title": "Battery aging",
                 "keywords": ["lithium-ion", "capacity fade", "solid electrolyte interphase", "cycling"],
                 "questions": [

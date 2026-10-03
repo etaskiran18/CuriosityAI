@@ -45,12 +45,12 @@ class Diary:
             f.write(text.rstrip() + "\n\n")
 
     def birth(self, state: MindState) -> None:
-        lines = [
-            f"# Diary of {state.name}",
-            "",
-            f"*Born {state.born_at[:19].replace('T', ' ')} UTC.* I begin with these questions:",
-            "",
-        ]
+        born = f"*Born {state.born_at[:19].replace('T', ' ')} UTC.*"
+        if state.topic.meaning:
+            born += f" I take my topic to mean: {state.topic.meaning}\n\nI begin with these questions:"
+        else:
+            born += " I begin with these questions:"
+        lines = [f"# Diary of {state.name}", "", born, ""]
         lines += [f"- **{q.id}** {q.text}" for q in state.questions.values()]
         self._append("\n".join(lines))
 

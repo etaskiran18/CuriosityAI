@@ -131,6 +131,7 @@ class Topic(BaseModel):
     mode: Literal["philosophy", "research"] = "philosophy"
     title: str = "the philosophy of curiosity"
     description: str = ""
+    meaning: str = ""  # researcher mode: what the topic means in its field, read from the person's papers
     keywords: list[str] = Field(default_factory=list)
     until_year: int | None = None  # researcher mode: read only papers published up to this year
 

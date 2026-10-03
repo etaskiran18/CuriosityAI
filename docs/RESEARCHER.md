@@ -12,7 +12,12 @@ python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/bat
 ```
 
 * `--topic`: your topic, in your own words. A new life is born in `memory/research/<topic>/` (or in
-  `--home`). It first writes a short title, key terms and five first questions for itself.
+  `--home`). It first reads how your papers begin (your own article first, if you share it), then
+  writes what it takes the topic to mean in your field, a short title, key terms and five first
+  questions for itself. Check that meaning when it is printed: a field's words can have an everyday
+  sense too (given only "How does lightning illuminate the inner magnetosphere?", a 7B model studied
+  light emission). If the meaning is wrong, start again with `--new-life` and write the topic in your
+  field's words.
 * `--papers`: a folder with your papers: PDF, `.txt` or `.md`. They are converted to text once, into
   `<home>/papers/`, with page markers such as `[page 3]` so every quote can be found again.
   Scanned PDFs (pictures of pages) contain no text; they are listed so you can run OCR on them first.
@@ -36,7 +41,8 @@ python live.py --topic "How does lightning illuminate the inner magnetosphere?" 
 ```
 
 Your article then counts as something a person shared (cited as `INBOX`), not as one of the papers
-(cited as `DOC`), and it is not read twice. The organism asks its own questions about it, and its
+(cited as `DOC`), and it is not read twice. A new life reads its beginning first, to learn what the
+topic means in your field. The organism asks its own questions about it, and its
 claims are checked against the literature like any other claim: its predictions about what the papers
 say can be contradicted, and the research map shows where the literature is silent (possible gaps) or
 disagrees (surprises). That is useful for an introduction or a discussion section, but every quote it

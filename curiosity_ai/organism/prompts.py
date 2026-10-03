@@ -42,7 +42,9 @@ class Persona:
 PHILOSOPHY = Persona(PHILOSOPHY_IDENTITY, "the classic texts", "curiosity itself", "the philosophy of curiosity")
 
 
-def researcher(title: str, description: str = "") -> Persona:
+def researcher(title: str, description: str = "", meaning: str = "") -> Persona:
+    if meaning.strip():
+        description = f"{description.strip()} In its field this means: {meaning.strip()}"
     identity = RESEARCH_IDENTITY.format(title=title.strip().rstrip("."), description=description.strip())
     return Persona(identity.replace("  ", " "), "the papers and notes in your library", f"your research topic ({title})", title, True)
 
@@ -99,9 +101,11 @@ an id such as B12. Use only what the notes say and cite the ids you used. If the
 question, answer exactly: not in my notes.
 """,
     "TOPIC": """
-[TOPIC] A person has given you a research topic. Prepare to study it: a short title, the key terms that papers on
-this topic use, and first questions that are specific, answerable from scientific papers, and different from
-each other.
+[TOPIC] A person has given you a research topic. Prepare to study it. First say what the topic means in its
+field: a topic's words can be the field's own terms, so read them as its researchers do, not in their everyday
+sense; the beginnings of the person's papers, when given, show how the field speaks. Then give a short title, the
+key terms that papers on this topic use, and first questions that are specific, answerable from scientific
+papers, and different from each other.
 """,
 }
 
@@ -228,6 +232,7 @@ GRADE_SCHEMA = """
 
 TOPIC_SCHEMA = """
 {
+  "meaning": "one sentence: what the topic means in its field, in plain words",
   "title": "a short title for the topic, at most 8 words",
   "keywords": ["key term", "another key term"],
   "questions": ["a specific first question", "another question"]

@@ -11,7 +11,7 @@ import pytest
 
 from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.exam import exam_notes, load_exam, run_exam
-from curiosity_ai.organism.papers import clean_pdf_text, ingest_papers, pdf_text
+from curiosity_ai.organism.papers import clean_pdf_text, ingest_papers, opening, pdf_text
 from curiosity_ai.organism.research_map import render_research_map
 
 from .organism_fakes import ScriptedLLM
@@ -246,3 +246,55 @@ def test_a_quote_copied_cleanly_from_noisy_pdf_text_is_accepted():
 def test_a_researcher_starts_with_no_theory(research_config):
     org = CuriosityOrganism(research_config, llm=ScriptedLLM())
     assert org.state.self_model.understanding_of_topic.startswith("I have no theory")
+
+
+def test_the_opening_of_a_paper_is_its_abstract():
+    text = ("[page 1]\nSCIENCE ADVANCES | RESEARCH ARTICLE\nWhistlers in the plasmasphere\nA. Author, B. Author\n"
+            "Abstract: Lightning-generated whistlers carry energy into the inner magnetosphere.\n[page 2]\nIntroduction")
+    assert opening(text).startswith("Lightning-generated whistlers carry energy")
+    plain = "[page 1]\nWhistlers\nA. Author\nLightning-generated whistlers carry wave energy from thunderstorms into the plasmasphere."
+    assert opening(plain).startswith("Lightning-generated whistlers carry wave energy")
+
+
+def test_a_researcher_reads_its_papers_before_it_writes_its_questions(research_config, papers):
+    """A topic's words can be its field's own terms; the papers show what they mean there."""
+    ingest_papers(papers, Path(research_config.organism.home) / "papers")
+    llm = ScriptedLLM()
+    org = CuriosityOrganism(research_config, llm=llm)
+    prompt = llm.prompts["TOPIC"]
+    assert "Mechanisms of battery aging" in prompt and "solid electrolyte interphase grows" in prompt
+    meaning = org.state.topic.meaning
+    assert meaning.startswith("How lithium-ion cells lose capacity")
+    assert meaning in org._sys("ANTICIPATE")  # every step knows what the topic means
+    assert meaning in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert meaning in render_research_map(org)
+
+
+def test_its_own_article_is_read_first(research_config, papers, tmp_path):
+    own = tmp_path / "main.pdf"
+    own.write_bytes(minimal_pdf(["Abstract: We show that capacity fade follows the growth of the interphase layer."], title="My draft on battery aging"))
+    research_config.organism.research.own_article = str(own)
+    ingest_papers(papers, Path(research_config.organism.home) / "papers")
+    llm = ScriptedLLM()
+    CuriosityOrganism(research_config, llm=llm)
+    prompt = llm.prompts["TOPIC"]
+    assert prompt.index("Their own article, My draft on battery aging") < prompt.index("Mechanisms of battery aging")
+    assert "We show that capacity fade follows" in prompt
+
+
+def test_without_papers_or_a_reply_the_topic_has_no_meaning_yet(config):
+    config.organism.research.topic = "Graphene membranes for desalination"
+    org = CuriosityOrganism(config, llm=ScriptedLLM(fail_steps=("TOPIC",)))
+    assert org.state.topic.meaning == "" and "In its field this means" not in org._sys("ANTICIPATE")
+
+
+def test_a_schema_hint_copied_back_is_not_a_meaning(research_config):
+    class Echo(ScriptedLLM):
+        def json_chat(self, system, user, schema_hint, **kwargs):
+            reply = super().json_chat(system, user, schema_hint, **kwargs)
+            if "[TOPIC]" in system:
+                reply["meaning"] = "one sentence: what the topic means in its field, in plain words"
+            return reply
+
+    org = CuriosityOrganism(research_config, llm=Echo())
+    assert org.state.topic.meaning == "" and org.state.topic.title == "Battery aging"

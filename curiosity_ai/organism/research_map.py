@@ -50,6 +50,8 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
     ]
     if topic.description:
         lines += [f"**Topic:** {topic.description}", ""]
+    if topic.meaning:
+        lines += [f"**What it takes the topic to mean:** {topic.meaning}", ""]
     if topic.keywords:
         lines += [f"**Key terms:** {', '.join(topic.keywords)}", ""]
     if topic.until_year:

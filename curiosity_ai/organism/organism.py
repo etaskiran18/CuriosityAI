@@ -44,6 +44,7 @@ from .body import Body, Rest
 from .diary import Diary
 from .judge import Judge, Pair, Verdict
 from .librarian import Librarian, ReadingWish
+from .papers import opening, read_paper
 from .drive import (
     DIAGNOSES,
     DriveReading,
@@ -265,7 +266,8 @@ class CuriosityOrganism:
         self.newborn = state is None
         self.state = state if state is not None else self._birth()
         self._adopt_topic_defaults()
-        self.persona = P.researcher(self.state.topic.title, self.state.topic.description) if self.research else P.PHILOSOPHY
+        topic = self.state.topic
+        self.persona = P.researcher(topic.title, topic.description, topic.meaning) if self.research else P.PHILOSOPHY
         self.topic_words = self._topic_words()
         if senses is None:
             senses = Senses.from_config(
@@ -318,7 +320,7 @@ class CuriosityOrganism:
     def _topic_words(self) -> frozenset[str]:
         topic = self.state.topic
         seeds = [q.text for q in self.state.questions.values() if q.trigger in ("seed", "human")]
-        return token_set(" ".join([topic.title, topic.description, *topic.keywords, *seeds]))
+        return token_set(" ".join([topic.title, topic.description, topic.meaning, *topic.keywords, *seeds]))
 
     # -- life and death ------------------------------------------------------
 
@@ -341,14 +343,29 @@ class CuriosityOrganism:
         return state
 
     def _prepare_research(self, topic_text: str, n: int) -> tuple[Topic, list[str]]:
-        """Researcher mode: turn a person's topic into a title, key terms and first questions."""
+        """Researcher mode: turn a person's topic into its meaning, a title, key terms and first questions.
+
+        It reads how the person's own article and papers begin first. A topic's words can be the field's
+        own terms: a 7B model given only "How does lightning illuminate the inner magnetosphere?" took
+        "illuminate" for light and spent a run on light emission, while its papers are about whistler waves.
+        """
         errors: list[str] = []
         persona = P.researcher(topic_text)
+        openings, titles = self._paper_openings()
+        reading = ""
+        if openings:
+            reading = "How the person's own article and papers begin (this is how their field speaks):\n" + "\n".join(openings) + "\n\n"
+        if titles:
+            reading += "Other papers they gave you: " + "; ".join(titles) + "\n\n"
         user = (
-            f"The research topic, in the person's words: {topic_text}\n\n"
-            f"Give a short title, 10 to 20 key terms, and {n} first questions about this topic."
+            f"The research topic, in the person's words: {topic_text}\n\n{reading}"
+            f"Say in one sentence what the topic means in its field, then give a short title, 10 to 20 key terms, "
+            f"and {n} first questions about this topic."
         )
         data = self._json(P.system("TOPIC", persona), user, P.TOPIC_SCHEMA, temperature=0.3, errors=errors, step="topic")
+        meaning = one_line(_as_str(data.get("meaning")), 400)
+        if meaning.lower().startswith(("one sentence", "what the topic means")) or len(meaning.split()) < 5:
+            meaning = ""  # the schema hint echoed back, or too short to say anything
         title = one_line(_as_str(data.get("title")), 80) or one_line(topic_text, 80)
         keywords = [one_line(k, 40) for k in _texts(data.get("keywords"), ("term", "keyword", "text")) if 1 <= len(k.split()) <= 4][:20]
         questions = [q for q in (_clean_question(t) for t in _texts(data.get("questions"), ("question", "text"))) if q][:n]
@@ -356,7 +373,28 @@ class CuriosityOrganism:
             keywords = keywords_of(topic_text, 12).split()
         if not questions:
             questions = [topic_text if topic_text.endswith("?") else f"What is known about {topic_text}, and what is still unknown?"]
-        return Topic(mode="research", title=title, description=one_line(topic_text, 600), keywords=keywords), questions
+        return Topic(mode="research", title=title, description=one_line(topic_text, 600), meaning=meaning, keywords=keywords), questions
+
+    def _paper_openings(self, *, openings: int = 5, titles: int = 15, chars: int = 400) -> tuple[list[str], list[str]]:
+        """The beginnings of the person's own article (--feed-file) and of its papers, and the titles of the rest."""
+        found: list[str] = []
+        own = self.oc.research.own_article.strip()
+        if own:
+            try:
+                meta, text = read_paper(Path(own).expanduser(), max_pages=3)
+                found.append(f"- Their own article, {one_line(meta.get('title') or Path(own).stem, 120)}: {opening(text, chars + 200)}")
+            except Exception:  # an unreadable article must not stop a birth
+                pass
+        rest: list[str] = []
+        papers = sorted(self.papers_dir.glob("*.md")) if self.papers_dir.is_dir() else []
+        for i, path in enumerate(papers[: openings + titles]):
+            meta, text = strip_front_matter(path.read_text(encoding="utf-8", errors="replace"))
+            title = one_line(meta.get("title") or path.stem.replace("_", " "), 120)
+            if i < openings:
+                found.append(f"- {title}: {opening(text, chars)}")
+            else:
+                rest.append(title)
+        return found, rest
 
     @staticmethod
     def archive(config: AppConfig) -> Path | None:

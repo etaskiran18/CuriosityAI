@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..utils import strip_front_matter
+from .textutil import one_line
 
 EXTENSIONS = (".pdf", ".txt", ".md", ".markdown")
 
@@ -74,6 +75,27 @@ def ingest_papers(source: Path, dest: Path, *, max_pages: int = 300, skip: set[P
         target.write_text("\n".join(lines), encoding="utf-8")
         report.added.append(path.name)
     return report
+
+
+def read_paper(path: Path, *, max_pages: int = 300) -> tuple[dict[str, str], str]:
+    """(front matter or PDF metadata, text) of one paper: a PDF, or a text or Markdown file."""
+    path = Path(path)
+    if path.suffix.lower() == ".pdf":
+        return pdf_text(path, max_pages=max_pages)
+    return strip_front_matter(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def opening(text: str, chars: int = 400) -> str:
+    """The start of a paper's abstract, or of its first real paragraph: how its field speaks."""
+    head = text[:8000]
+    match = re.search(r"\babstract\b[\s:.\u2013\u2014-]*", head, re.IGNORECASE)
+    if match:
+        body = text[match.end():match.end() + chars * 3]
+    else:
+        lines = head.splitlines()
+        first = next((i for i, line in enumerate(lines) if len(line.split()) >= 10 and not _looks_like_header(line.strip())), 0)
+        body = "\n".join(lines[first:])[: chars * 3]
+    return one_line(re.sub(r"\[page \d+\]", " ", body), chars)
 
 
 def pdf_text(path: Path, *, max_pages: int = 300) -> tuple[dict[str, str], str]:
