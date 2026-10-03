@@ -6,6 +6,7 @@ verification) stay inspectable and testable.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -155,6 +156,9 @@ def verify_quote(quote: str, source_text: str, *, min_words: int = 4, fuzzy: flo
         if match.size >= fuzzy * len(needle):
             verified_parts.append(part.strip())
             continue
+        if _in_order(needle.split(), haystack.split()):
+            verified_parts.append(part.strip())
+            continue
         return None
     if not verified_parts:
         return None
@@ -167,7 +171,10 @@ def verify_quote(quote: str, source_text: str, *, min_words: int = 4, fuzzy: flo
 # say, it survives. Doubt belongs in the probability, not in the wording.
 _HEDGE_RE = re.compile(
     r"\b(may|might|could|possibly|perhaps|potentially|presumably|probably|likely|"
-    r"it is possible|some (?:texts|authors|thinkers|sources))\b",
+    r"it is possible|some (?:texts|authors|thinkers|sources)|"
+    # "Carpenter will discuss X" says what a text is about, not what it claims: it can never be contradicted.
+    r"will (?:discuss|explore|provide|mention|address|examine|describe|talk about|cover|present|review|"
+    r"investigate|highlight|emphasi[sz]e|consider|touch on|deal with|focus on|elaborate on|analy[sz]e))\b",
     re.IGNORECASE,
 )
 
@@ -213,6 +220,33 @@ def keywords_of(text: str, limit: int = 6) -> str:
         if len(seen) >= limit:
             break
     return " ".join(seen)
+
+
+def _in_order(quote: list[str], text: list[str], *, share: float = 0.9, slack: float = 1.5) -> bool:
+    """Nearly all the quote's words, in order, within a short stretch of the text.
+
+    Text taken from PDFs carries layout noise inside sentences (citation marks
+    such as "[24, 25]", a word from the next column, a page header). A model
+    that copies such a sentence cleanly is quoting, not inventing. Quotes of
+    fewer than 6 words must match exactly.
+    """
+    n = len(quote)
+    if n < 6:
+        return False
+    need, window = math.ceil(share * n), int(slack * n) + 2
+    starts = {w for w in quote[:3]}
+    for i, word in enumerate(text):
+        if word not in starts:
+            continue
+        found, k, end = 0, i, min(len(text), i + window)
+        for w in quote:
+            for j in range(k, end):
+                if text[j] == w:
+                    found, k = found + 1, j + 1
+                    break
+        if found >= need:
+            return True
+    return False
 
 
 def clip(text: str, max_chars: int) -> str:

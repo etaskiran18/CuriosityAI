@@ -252,6 +252,7 @@ class CuriosityOrganism:
             max_confidence_step=self.oc.max_confidence_step,
             surprise_decay=self.oc.surprise_decay,
             refractory=self.oc.refractory,
+            news_bonus=self.oc.news_bonus,
             boredom_lp_floor=self.oc.boredom_lp_floor,
             boredom_rate=self.oc.boredom_rate,
         )
@@ -328,6 +329,7 @@ class CuriosityOrganism:
             state.topic, seeds = self._prepare_research(research.topic.strip(), research.seed_questions)
             state.topic.until_year = research.until_year
             state.name = self.oc.name if self.oc.name != "Curiosity" else "Curiosity (researcher)"
+            state.self_model.understanding_of_topic = "I have no theory of this topic yet; I am about to start reading."
         else:
             tc = self.oc.topic
             state.topic = Topic(title=tc.title, description=tc.description, keywords=list(tc.keywords))
@@ -615,16 +617,19 @@ class CuriosityOrganism:
                 claim = _as_str(item.get("claim") or item.get("expectation") or item.get("text") or "")
                 if not claim:
                     claim = next((v for k, v in item.items() if isinstance(v, str) and k not in ("author", "who", "probability")), "")
-                author = one_line(_as_str(item.get("author") or item.get("who") or ""), 80)
+                author = _as_str(item.get("author") or item.get("who") or "").strip()
+                if len(author) > 40:
+                    author = re.split(r",|;| and | et al", author)[0].strip()  # one name, not the whole author list
+                author = one_line(author, 60)
                 raw = item.get("probability", item.get("p"))
                 # "0.05 to 0.95" is the schema hint copied back, not a probability.
                 probability = None if re.search(r"\d\s*(to|-|\u2013)\s*\d", _as_str(raw)) else _confidence(raw)
             else:
                 claim, author, probability = _as_str(item), "", None
             claim = re.sub(r"^\s*(E\d+[:.)]|\d+[.)]|[-*])\s*", "", claim).strip()
-            if len(claim.split()) < 4 or claim.lower().startswith(("what they will say", "a specific claim")):
+            if len(claim.split()) < 4 or claim.lower().startswith(("what they will say", "what they hold or found", "a specific claim")):
                 continue  # too short to be checked, or the schema hint echoed back
-            if author.lower().startswith("who will say"):
+            if author.lower().startswith(("who will say", "one author")):
                 author = ""
             probability = self.oc.default_probability if probability is None else min(0.95, max(0.05, probability))
             predictions.append(Prediction(one_line(claim, 300), author, probability, is_hedged(claim)))
@@ -783,7 +788,8 @@ class CuriosityOrganism:
                     f"What the texts showed:\n{findings}\n\n"
                     f"How you currently understand {self.persona.theory}: {understanding}\n\n"
                     "In at most 120 words: say what puzzles you most here and propose one bold explanation that could "
-                    "turn out to be wrong. End with the deepest question this raises."
+                    "turn out to be wrong. End with the deepest question this raises. Refer to texts only by their labels "
+                    "(S1, S2, ...); never cite a paper you were not shown."
                 )
             elif turn % 2 == 1:
                 step, voice, temperature = "SKEPTIC", "Skeptic", 0.5
@@ -794,7 +800,8 @@ class CuriosityOrganism:
                     "WONDER just said with evidence. "
                     "Copy the exact words of a passage above that cuts against it (with its label), or name a thinker in "
                     "your library who would disagree and say what they would say. Do not object that it is more complex "
-                    "or that other factors matter. End with the one question WONDER must answer."
+                    "or that other factors matter. Never cite a paper you were not shown. End with the one question WONDER "
+                    "must answer."
                 )
             else:
                 step, voice, temperature = "WONDER", "Wonder", 0.6
@@ -802,12 +809,15 @@ class CuriosityOrganism:
                     f"Question: {q.text}\n\nWhat the texts showed:\n{findings}\n\nThe dialogue so far:\n{so_far}\n\n"
                     "Begin your reply with exactly one word: DEFEND (the objection fails: show why from the evidence), "
                     "REVISE (you change one specific part: say which) or CONCEDE (the objection is right). Then, in at "
-                    "most 90 words of plain prose, reply to the skeptic and end with one sentence saying where you now stand."
+                    "most 90 words of plain prose, reply to the skeptic and end with one sentence saying where you now stand. "
+                    "Refer to texts only by their labels (S1, S2, ...); never cite a paper you were not shown."
                 )
             text = self._text(self._sys(step), user, temperature=temperature, errors=errors, step=voice.lower())
             if not text:
                 break
             entry = {"voice": voice, "text": clip(_strip_voice_prefix(text, voice), 1200)}
+            if _cites_from_memory(entry["text"]):
+                entry["citations"] = "unverified"  # papers it was not shown, cited from memory: possibly invented
             if voice == "Skeptic":
                 entry["evidence"] = "quote" if _quotes_a_passage(entry["text"], observations) else ""
             elif turn > 0:
@@ -909,6 +919,7 @@ class CuriosityOrganism:
             )
         )
         q.last_visited = hb
+        q.news = False  # whatever was fetched for it has now been read
 
         # The blind judge checks the new beliefs' quotes, then (separately: small models mix the two
         # tasks up) rates how central each proposed question is to the topic.
@@ -985,11 +996,16 @@ class CuriosityOrganism:
                 if other.status == "settled" and bid in other.related_beliefs:
                     self._reopen(other, f"belief {bid}, which it relied on, was contradicted")
 
-        # At most one new question is born, the one closest to the main topic. A question the
-        # judge rates off the topic is set aside; it is noted in the diary but not pursued.
+        # At most one new question is born, the one closest to the main topic, and only with a
+        # reason. A question the judge rates off the topic is set aside; one without a reason yet
+        # is held back. Both are noted in the diary but not pursued.
         born: list[str] = []
         woke: list[str] = []
         set_aside: list[str] = []
+        held_back: list[str] = []
+        evidence = support + contradicted > 0 or bool(comparison.unexpected)
+        skeptic_quoted = any(t.get("voice") == "Skeptic" and t.get("evidence") == "quote" for t in dialogue)
+        second_look = len(q.active_visits) >= oc.min_visits_before_children
         candidates: list[tuple[float, NewQuestion]] = []
         for k, nq in enumerate(proposals):
             rating = ratings[k] if k < len(ratings) else None
@@ -1004,7 +1020,10 @@ class CuriosityOrganism:
         for relevance, nq in sorted(candidates, key=lambda item: -item[0]):
             if len(born) >= oc.max_new_questions_per_heartbeat:
                 break
-            trigger = "contradiction" if doubted and nq.trigger == "gap" else nq.trigger
+            trigger = _birth_trigger(nq.trigger, evidence=evidence, error=error, contradicted=bool(contradicted or doubted))
+            if not _may_be_born(trigger, second_look=second_look, skeptic_quoted=skeptic_quoted):
+                held_back.append(one_line(nq.text, 200))
+                continue
             question, outcome = self._adopt_question(
                 nq.text,
                 trigger=trigger,
@@ -1058,6 +1077,7 @@ class CuriosityOrganism:
             new_question_ids=born,
             reawakened_question_ids=woke,
             set_aside_questions=set_aside,
+            held_back_questions=held_back,
             relevance=chosen.relevance,
             status_after=q.status,
             policy=oc.policy,
@@ -1093,17 +1113,32 @@ class CuriosityOrganism:
                 heartbeat=self.state.heartbeat,
                 context=" ".join([q.text, topic.title, *topic.keywords]),
                 until_year=topic.until_year,
+                approve=self._text_approver(q, errors),
             )
         except Exception as exc:  # the internet is not part of the organism; its absence is not fatal
             errors.append(f"library: {type(exc).__name__}: {one_line(str(exc), 140)}")
             return
         episode.acquisitions = [a.label() for a in got]
+        if got:
+            q.news = True  # come back and see whether the new texts answer it
         episode.library_misses = list(lib.missed)
         episode.library_owned = list(lib.owned)
         episode.library_busy = list(lib.busy)
         episode.library_rejected = list(lib.rejected)
         if got:
             self.senses.notice_new_material()
+
+    def _text_approver(self, q: Question, errors: list[str]) -> Callable[[str, str], bool] | None:
+        """The judge decides whether a text a search found is worth keeping for this question."""
+        if self.judge is None:
+            return None
+        topic = f"{self.state.topic.title}. {self.state.topic.description}".strip(". ")
+
+        def approve(title: str, beginning: str) -> bool:
+            rating = self.judge.text_relevance(title, beginning, question=q.text, topic=topic, errors=errors)
+            return rating is None or rating >= 0.6  # "useful" (2 of 3) or better; no answer: the word check decides
+
+        return approve
 
     def _reading_wish(self, q: Question, episode: Episode, errors: list[str]) -> ReadingWish:
         titles = getattr(self.senses.library, "titles", lambda: [])()
@@ -1704,3 +1739,37 @@ def _quotes_a_passage(text: str, observations: list[Observation]) -> bool:
         if any(verify_quote(fragment, o.text) for o in observations):
             return True
     return False
+
+
+def _birth_trigger(proposed: str, *, evidence: bool, error: float, contradicted: bool) -> str:
+    """What really gave rise to a proposed question. The model's own label is checked:
+    a "surprise" needs evidence the judge accepted and a real prediction error, and a
+    "contradiction" needs a contradiction. Otherwise the question answers a gap."""
+    if proposed == "surprise" and not (evidence and error >= 0.1):
+        return "gap"
+    if proposed == "contradiction" and not contradicted:
+        return "gap"
+    if proposed == "gap" and contradicted:
+        return "contradiction"
+    return proposed
+
+
+def _may_be_born(trigger: str, *, second_look: bool, skeptic_quoted: bool) -> bool:
+    """Depth before breadth: surprises and contradictions give birth at once; an objection
+    only when the skeptic quoted a text; a gap only once the parent has had a second look."""
+    if trigger in ("surprise", "contradiction"):
+        return True
+    if trigger == "objection" and skeptic_quoted:
+        return True
+    return second_look
+
+
+_MEMORY_CITATION = re.compile(
+    r"\bet al\.?,?\s*(?:\(?\d{4}|[\"\u201c])|\b(?:vol|no)\.\s*\d|\bpp\.\s*\d|\bJournal of [A-Z]|\bdoi:|^\s*\[\d+\]\s+[A-Z]",
+    re.MULTILINE,
+)
+
+
+def _cites_from_memory(text: str) -> bool:
+    """A reference such as 'T. Nakamura et al., "Whistler Observations...", JGR vol. 82' was not among the passages."""
+    return bool(_MEMORY_CITATION.search(text))

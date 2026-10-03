@@ -64,6 +64,7 @@ class ScriptedLLM:
         relevance: Callable[[str], Any] | Any = 3,
         grade: str = "correct",
         stance: str = "REVISE",
+        text_rating: Any = 3,
     ):
         self.fail_steps = set(fail_steps)
         self.settle_override = settle
@@ -74,6 +75,7 @@ class ScriptedLLM:
         self.relevance = relevance
         self.grade = grade
         self.stance = stance
+        self.text_rating = text_rating
         self.calls: list[str] = []
         self.prompts: dict[str, str] = {}  # the last prompt of each step
         self.history: list[tuple[str, str]] = []  # every (step, prompt), in order
@@ -137,6 +139,8 @@ class ScriptedLLM:
                     {"finding": "made up", "source": first, "quote": "This sentence does not appear anywhere in the sources at all"},
                 ],
             }
+        if step == "JUDGE" and "A text found in a search" in user:
+            return {"rating": self.text_rating, "reason": "scripted"}
         if step == "JUDGE":
             verdicts = []
             for n, claim, quote in pairs_in(user):

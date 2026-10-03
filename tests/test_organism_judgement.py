@@ -250,3 +250,50 @@ def test_a_fragment_too_short_to_say_anything_is_not_a_finding(config):
 
     ep = CuriosityOrganism(config, llm=Fragments()).heartbeat()
     assert ep.unexpected == [] and ep.rejected_quotes == 1  # only the invented E3 quote counts as invented
+
+
+# -- from the first research run (mistral 7B, a space-physics topic) ----------------------
+
+
+def test_a_reply_cut_off_by_the_length_limit_keeps_what_was_complete():
+    from curiosity_ai.utils import extract_json_object
+
+    cut = (
+        '{ "answer": "Lightning-generated whistlers indirectly illuminate the inner magnetosphere.", "confidence": 0.3, '
+        '"expectations": [{"author": "Carpenter", "claim": "Whistlers trace the plasmapause", "probability": 0.7}, '
+        '{"author": "Tu", "claim": "Lightning heats the D region by quasi-electrostatic fie'
+    )
+    data = extract_json_object(cut)
+    assert data["answer"].startswith("Lightning") and data["expectations"][0]["claim"] == "Whistlers trace the plasmapause"
+    with pytest.raises(ValueError):
+        extract_json_object("no json here at all")
+
+
+def test_will_discuss_is_a_hedge():
+    assert is_hedged("Carpenter will discuss the structure of electromagnetic pulses")
+    assert is_hedged("Gallagher will provide an overview of the waves")
+    assert not is_hedged("Lightning will heat the lower ionosphere by ten kelvin")
+
+
+def test_a_long_author_list_becomes_one_name(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    parsed = org._parse_anticipation({"expectations": [{
+        "author": "J.-N. Tu, J. T. Emmert, R. A. Marshall, Chih-Te Hsu and Roderick A. Heelis",
+        "claim": "Joule heating from lightning currents is negligible above 100 km", "probability": 0.6,
+    }]})
+    assert parsed.predictions[0].author == "J.-N. Tu"
+
+
+def test_citations_from_memory_are_flagged_in_the_debate(config):
+    class Citing(ScriptedLLM):
+        def chat(self, system, user, **kw):
+            text = super().chat(system, user, **kw)
+            if "[WONDER]" in system and "Begin your reply" in user:
+                return text + ' [1] T. Nakamura et al., "Whistler Observations During Storms," Journal of Geophysical Research, vol. 82, 1977.'
+            return text
+
+    org = CuriosityOrganism(config, llm=Citing())
+    ep = org.heartbeat()
+    assert ep.dialogue[-1].get("citations") == "unverified"
+    assert "cites papers it was not shown" in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert "never cite a paper you were not shown" in org.llm.prompts["SKEPTIC"].lower()

@@ -102,6 +102,25 @@ class Judge:
         return _parse_verdicts(data.get("verdicts"), len(pairs)), _parse_ratings(data.get("ratings"), len(questions))
 
 
+    def text_relevance(self, title: str, excerpt: str, *, question: str, topic: str, errors: list[str] | None = None) -> float | None:
+        """How useful a text found by a search is for the question (0..1), or None if the judge could not say."""
+        user = (
+            f"Main topic: {topic}\n\nQuestion: {question}\n\nA text found in a search:\nTitle: {one_line(title, 200)}\n"
+            f"Beginning: {one_line(excerpt, 900)}\n\nHow useful is this text for answering the question, within the main "
+            "topic? 3 = directly useful, 2 = useful, 1 = only loosely related, 0 = unrelated."
+        )
+        self.before_thinking()
+        try:
+            data = self.llm.json_chat(P.JUDGE_TEXT, user, P.TEXT_RATING_SCHEMA, temperature=self.temperature, max_tokens=120)
+        except Exception as exc:
+            if errors is not None:
+                errors.append(f"judge: {type(exc).__name__}: {one_line(str(exc), 160)}")
+            self.trace("judge-text", user, f"ERROR {exc}")
+            return None
+        self.trace("judge-text", user, data)
+        return rating_of((data or {}).get("rating")) if isinstance(data, dict) else None
+
+
 def _index(value: Any, default: int) -> int:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return int(value)

@@ -209,6 +209,8 @@ def compute_metrics(
         "vague_answers": sum(1 for e in episodes if e.vague),
         "mean_on_topic": _mean([e.relevance for e in episodes]),
         "questions_set_aside": sum(len(e.set_aside_questions) for e in episodes),
+        "questions_held_back": sum(len(e.held_back_questions) for e in episodes),
+        "dialogue_unverified_citations": sum(1 for e in episodes for t in e.dialogue if t.get("citations") == "unverified"),
         "library_visits": sum(1 for e in episodes if e.acquisitions or e.library_misses or e.library_owned or e.library_busy or e.library_rejected),
         "acquisitions": len(acquired),
         "acquisitions_by_kind": dict(Counter(label.split(":")[0] for label in acquired)),
@@ -276,9 +278,10 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"the texts confirmed {m['predictions_confirmed']} and contradicted {m['predictions_contradicted']}; {_brier_text(m)}.",
         _judge_line(m),
         f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "
-        f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong.",
-        f"- **Staying on topic:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
-        f"{m['questions_set_aside']} proposed questions set aside as off topic.",
+        f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong; "
+        f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified).",
+        f"- **Staying on topic and in depth:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
+        f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look.",
         f"- **Library:** {m['library_visits']} visits, {m['acquisitions']} texts acquired ({_counts(m['acquisitions_by_kind'])}); "
         f"{m['library_rejected']} found but off topic; {m['library_busy']} searches impossible because a source was busy.",
         f"- **Self-regulation:** {_counts({DIAGNOSES.get(k, {}).get('name', k): v for k, v in m['diagnoses'].items()}) or 'no reflection in this session'}.",

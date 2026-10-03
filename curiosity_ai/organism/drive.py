@@ -17,6 +17,9 @@ Each term is a mechanism taken from the philosophy or psychology of curiosity
 * importance -- Hume: the truth we pursue must seem of some importance.
 * boredom -- the guard against Augustine's curiositas and Heidegger's Neugier:
   restless attention that never dwells long enough to understand.
+* news -- when texts were fetched for a question, it pulls the organism back
+  to see whether they answer it (Dewey: inquiry returns to the problem with
+  new material). The refractory pause does not apply then.
 * topic anchor -- a question far from the main topic pulls less. Without it a
   language model drifts from "is doubt the engine of inquiry?" to "how can we
   develop adaptive learning strategies for diverse cultural contexts?".
@@ -109,6 +112,7 @@ class DriveReading:
     boredom: float
     refractory: float
     relevance: float = 1.0  # how directly the question serves the main topic
+    news: float = 0.0  # pull from texts fetched for it since its last visit
 
     def as_dict(self) -> dict[str, float]:
         d = asdict(self)
@@ -123,6 +127,7 @@ class DriveSettings:
     max_confidence_step: float = 0.25
     surprise_decay: float = 0.85
     refractory: float = 0.5
+    news_bonus: float = 0.25
     boredom_lp_floor: float = 0.08
     boredom_rate: float = 0.35
     anchor_k: int = 3
@@ -154,7 +159,9 @@ def read_drive(
         lp_floor=settings.boredom_lp_floor,
         rate=settings.boredom_rate,
     )
-    refractory = settings.refractory if question.last_visited is not None and now - question.last_visited <= 1 else 0.0
+    news = settings.news_bonus if question.news else 0.0
+    recent = question.last_visited is not None and now - question.last_visited <= 1
+    refractory = settings.refractory if recent and not question.news else 0.0
     w = temperament
     raw = (
         w.gap * gap * anchor
@@ -162,9 +169,10 @@ def read_drive(
         + w.surprise * surprise
         + w.novelty * nov
         + w.importance * imp
+        + news
     )
     total = raw * (1.0 - bored) * (1.0 - refractory) * topic_factor(relevance, temperament.topic_anchor)
-    return DriveReading(question.id, total, gap, anchor, lp, surprise, nov, imp, bored, refractory, clamp(relevance))
+    return DriveReading(question.id, total, gap, anchor, lp, surprise, nov, imp, bored, refractory, clamp(relevance), news)
 
 
 def choose(readings: list[DriveReading], temperature: float, rng: random.Random) -> DriveReading | None:

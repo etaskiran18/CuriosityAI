@@ -193,7 +193,7 @@ def test_a_busy_source_is_reported_as_busy_not_as_nothing_found(tmp_path: Path):
     lib = make_librarian(tmp_path, FakeInternet(scholar_status=429, arxiv_status=503))
     got = lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap curiosity"]), reason="r")
     assert [a.kind for a in got] == ["encyclopedia"]
-    assert lib.busy == ["paper: information gap curiosity"] and lib.missed == []
+    assert lib.busy == ["paper: information gap curiosity (api.semanticscholar.org, export.arxiv.org)"] and lib.missed == []
 
 
 def test_when_semantic_scholar_is_busy_arxiv_is_asked(tmp_path: Path):
@@ -247,7 +247,7 @@ class FakeLibrarian:
     rejected: list[str] = []
     failed_searches: list[str] = []
 
-    def acquire(self, wish, *, reason, question_id=None, heartbeat=None, context="", until_year=None):
+    def acquire(self, wish, *, reason, question_id=None, heartbeat=None, context="", until_year=None, approve=None):
         self.wishes.append(wish)
         self.contexts = getattr(self, "contexts", []) + [context]
         folder = self.library_dir / "encyclopedia"
@@ -366,3 +366,42 @@ def test_arxiv_entries_are_parsed():
     assert papers[0]["url"] == "http://arxiv.org/abs/1703.00001v1" and papers[0]["year"] == "2017"
     assert papers[0]["authors"] == [{"name": "Deepak Pathak"}]
     assert parse_arxiv(b"not xml") == []
+
+
+
+def test_after_fetching_texts_it_returns_to_the_question(config):
+    config.organism.librarian.hunger_informativeness = 0.9
+    config.organism.seed_questions.append("Is doubt the engine of inquiry or its enemy?")
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.librarian = FakeLibrarian(org.library_dir)
+    first = org.heartbeat()
+    assert first.acquisitions and org.state.questions[first.question_id].news
+    second = org.heartbeat()
+    assert second.question_id == first.question_id  # it goes back to read what it fetched
+    assert not org.state.questions[first.question_id].news
+
+
+
+def test_the_judge_can_refuse_a_text_that_only_shares_words(tmp_path: Path):
+    lib = make_librarian(tmp_path, FakeInternet())
+    seen = []
+
+    def approve(title, beginning):
+        seen.append(title)
+        return False
+
+    assert lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap curiosity"]), reason="r", context=CONTEXT, approve=approve) == []
+    # The word check runs first; the judge is asked only about texts that pass it (the arXiv paper did not).
+    assert seen == ["Wikipedia: Curiosity", "The psychology of curiosity: A review and reinterpretation"]
+    assert sum("the judge found not useful" in r for r in lib.rejected) == 2
+
+
+def test_the_organism_lets_its_judge_approve_what_it_fetches(config):
+    config.organism.librarian.hunger_informativeness = 0.9
+    llm = ScriptedLLM(text_rating=0)
+    org = CuriosityOrganism(config, llm=llm)
+    http = Http("test-agent", min_interval=0, sleep=lambda s: None, session=FakeSession(FakeInternet()))
+    org.librarian = Librarian(config.organism.librarian, org.library_dir, http=http)
+    ep = org.heartbeat()
+    assert ep.acquisitions == [] and ep.library_rejected
+    assert any("A text found in a search" in prompt for step, prompt in llm.history if step == "JUDGE")

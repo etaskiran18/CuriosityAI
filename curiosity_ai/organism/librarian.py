@@ -134,7 +134,7 @@ class Http:
                 if attempt == 0 and retry <= self.max_wait:
                     self._sleep(retry)
                     continue
-                self._resting_until[host] = self._clock() + max(retry, 300)
+                self._resting_until[host] = self._clock() + max(retry, 120)
                 self.busy = True
                 return None
             return resp if resp.status_code < 400 else None
@@ -485,6 +485,7 @@ class Librarian:
         self.busy: list[str] = []  # could not look: the source was busy or unreachable
         self.rejected: list[str] = []  # found, but off the topic, so not kept
         self.failed_searches: list[str] = []  # searches that found nothing in this run (not repeated)
+        self.approve: Callable[[str, str], bool] | None = None
 
     def history(self) -> list[dict[str, Any]]:
         return read_jsonl(self.log_path)
@@ -512,15 +513,19 @@ class Librarian:
         heartbeat: int | None = None,
         context: str = "",
         until_year: int | None = None,
+        approve: Callable[[str, str], bool] | None = None,
     ) -> list[Acquisition]:
         """Look up what the organism wished to read. Returns what was actually added.
 
         ``context`` (the question and the topic's words) is what a found text
-        must be about to be kept. ``until_year`` keeps out papers published
-        later, and Wikipedia altogether, since today's articles report later
-        work (for tests that pretend it is that year).
+        must be about to be kept. ``approve(title, beginning)``, when given (the
+        organism's judge), must also accept it: shared words are not enough
+        ("Magnetosphere of Saturn" for a question about Earth's). ``until_year``
+        keeps out papers published later, and Wikipedia altogether, since
+        today's articles report later work (for tests that pretend it is that year).
         """
         self.missed, self.owned, self.busy, self.rejected = [], [], [], []
+        self.approve = approve
         found: list[Acquisition] = []
         meta = {"reason": reason, "question_id": question_id, "heartbeat": heartbeat}
         sources = self.config.sources
@@ -552,8 +557,8 @@ class Librarian:
     def _attempt(self, found: list[Acquisition], key: str, wish: str, fetch: Callable[[], "Acquisition | str | None"]) -> None:
         try:
             result = fetch()
-        except SourceBusy:
-            self.busy.append(wish)
+        except SourceBusy as exc:
+            self.busy.append(f"{wish} ({exc})")
             return
         if result is _OWNED:
             self.owned.append(wish)
@@ -574,6 +579,9 @@ class Librarian:
         shared = (token_set(context) - token_set(query)) & token_set(text)
         return len(shared) >= self.config.min_relevance_words
 
+    def _approved(self, title: str, beginning: str) -> bool:
+        return self.approve is None or self.approve(title, beginning)
+
     def _from_wikipedia(self, topic: str, context: str = "", **meta) -> "Acquisition | str | None":
         result = self.wikipedia.find(topic)
         if result is None:
@@ -583,6 +591,8 @@ class Librarian:
             return _OWNED
         if not self._relevant(topic, context, f"{title} {text[:3000]}"):
             return f"{_OFF_TOPIC}: found '{title}'"
+        if not self._approved(f"Wikipedia: {title}", text[:1500]):
+            return f"{_OFF_TOPIC}: found '{title}', which the judge found not useful"
         front = {
             "title": title, "author": "Wikipedia", "cite_as": "WIKI", "source_url": url,
             "license": "CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); text by Wikipedia contributors",
@@ -600,6 +610,8 @@ class Librarian:
                 return _OWNED
             if candidates is None and not self._relevant(query, context, f"{entry.title} {entry.subjects}"):
                 return f"{_OFF_TOPIC}: found '{entry.title}' by {entry.author}"
+            if candidates is None and not self._approved(f"{entry.title}, by {entry.author}", entry.subjects):
+                return f"{_OFF_TOPIC}: found '{entry.title}' by {entry.author}, which the judge found not useful"
             fetched = self.gutenberg.fetch_text(entry)
             if fetched is None:
                 return None
@@ -616,7 +628,7 @@ class Librarian:
 
     def _from_papers(self, query: str, context: str, until_year: int | None, **meta) -> "Acquisition | str | None":
         """Semantic Scholar first, then arXiv. Busy only if no source could be asked."""
-        busy = False
+        busy: list[str] = []
         outcome: "Acquisition | str | None" = None
         searches = [("semantic_scholar", self.scholar), ("arxiv", self.arxiv)]
         for name, source in searches:
@@ -624,8 +636,8 @@ class Librarian:
                 continue
             try:
                 papers = source.find(query, k=2, until_year=until_year)
-            except SourceBusy:
-                busy = True
+            except SourceBusy as exc:
+                busy.append(str(exc))
                 continue
             for paper in papers:
                 result = self._save_paper(paper, query, context, name, **meta)
@@ -633,7 +645,7 @@ class Librarian:
                     return result
                 outcome = outcome or result  # off topic: remember, but try the next source
         if outcome is None and busy:
-            raise SourceBusy("paper search")
+            raise SourceBusy(", ".join(busy))
         return outcome
 
     def _save_paper(self, paper: dict[str, Any], query: str, context: str, source: str, **meta) -> "Acquisition | str | None":
@@ -645,6 +657,8 @@ class Librarian:
         title = paper.get("title", "Untitled")
         if not self._relevant(query, context, f"{title} {paper.get('abstract', '')}"):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}'"
+        if not self._approved(title, paper.get("abstract", "")):
+            return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which the judge found not useful"
         authors = ", ".join(a.get("name", "") for a in (paper.get("authors") or [])[:3]) or "Unknown"
         year = str(paper.get("year") or "")
         body = f"{title}\n\n{authors} ({year}). {paper.get('venue') or ''}\n\nAbstract:\n{paper['abstract']}"

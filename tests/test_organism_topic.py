@@ -5,7 +5,7 @@ import pytest
 
 from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.drive import DriveSettings, Vitals, diagnose, read_drive, regulate, topic_factor
-from curiosity_ai.organism.state import Question, Temperament
+from curiosity_ai.organism.state import Question, Temperament, Visit
 from curiosity_ai.organism.textutil import token_set, topic_relevance
 
 from .organism_fakes import ScriptedLLM
@@ -15,6 +15,11 @@ NEW = [
     {"question": "How can we develop adaptive learning strategies for diverse cultural contexts?", "trigger": "gap", "importance": 0.95},
     {"question": "Is perplexity a feeling or a judgment about what we lack?", "trigger": "objection", "importance": 0.8},
 ]
+
+
+def first_look(org) -> None:
+    """Q1 has been looked at once already, so gaps and objections may now give birth."""
+    org.state.questions["Q1"].visits.append(Visit(heartbeat=0, confidence_before=0.25, confidence_after=0.25, prediction_error=0.0, informativeness=0.0))
 
 
 def proposing(new_questions, **kw) -> ScriptedLLM:
@@ -39,6 +44,7 @@ def test_the_topic_words_estimate_relevance_when_nobody_rated_it():
 def test_a_confused_judge_cannot_throw_away_a_question_made_of_topic_words(config):
     """A small judge sometimes rates everything 0; the topic's own words then keep the question."""
     org = CuriosityOrganism(config, llm=proposing(NEW[:1], relevance=0))
+    first_look(org)
     ep = org.heartbeat()
     assert len(ep.new_question_ids) == 1 and ep.set_aside_questions == []
 
@@ -56,6 +62,7 @@ def test_only_one_question_is_born_per_heartbeat_the_most_central(config):
     rate = lambda question: 3 if "perplexity" in question else (0 if "cultural" in question else 2)
     side = {"question": "Which experiments did Michotte run on perceived causality?", "trigger": "gap", "importance": 0.9}
     org = CuriosityOrganism(config, llm=proposing([side, NEW[1], NEW[2]], relevance=rate))
+    first_look(org)
     ep = org.heartbeat()
     assert len(ep.new_question_ids) == 1
     child = org.state.questions[ep.new_question_ids[0]]
@@ -127,3 +134,44 @@ def test_reflection_keeps_its_theory_when_the_new_one_is_too_vague(config):
     org.heartbeat()
     assert org.state.self_model.understanding_of_curiosity == before
     assert "too vague to be wrong, so I kept the old one" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+
+# -- depth before breadth --------------------------------------------------------------
+
+
+GAP = {"question": "Is perplexity a feeling or a judgment about what we lack?", "trigger": "gap", "importance": 0.8}
+
+
+def test_a_gap_question_waits_for_a_second_look(config):
+    org = CuriosityOrganism(config, llm=proposing([GAP]))
+    ep = org.heartbeat()
+    assert ep.new_question_ids == [] and ep.held_back_questions == [GAP["question"]]
+    assert "Kept for a second look" in (org.home / "diary.md").read_text(encoding="utf-8")
+    again = CuriosityOrganism(config, llm=proposing([GAP]))
+    again.state.questions["Q1"].last_visited = None  # no refractory pause in this test
+    ep2 = again.heartbeat()
+    assert ep2.question_id == "Q1" and len(ep2.new_question_ids) == 1  # second look: the gap is real
+
+
+def test_a_surprise_without_evidence_is_only_a_gap(config):
+    surprise = {**GAP, "trigger": "surprise"}
+    ep = CuriosityOrganism(config, llm=proposing([surprise], judge="neither")).heartbeat()
+    assert ep.new_question_ids == [] and ep.held_back_questions  # the judge accepted no evidence
+
+
+def test_a_real_surprise_gives_birth_at_once(config):
+    surprise = {**GAP, "trigger": "surprise"}
+    ep = CuriosityOrganism(config, llm=proposing([surprise])).heartbeat()
+    assert len(ep.new_question_ids) == 1  # confirmed evidence and a real prediction error
+
+
+def test_new_texts_bring_it_back_to_the_question():
+    q = Question(id="Q1", text="q", last_visited=5)
+    q.visits.append(Visit(heartbeat=5, confidence_before=0.3, confidence_after=0.3, prediction_error=0.0, informativeness=0.0))
+    t, s = Temperament(), DriveSettings()
+    pause = read_drive(q, t, 6, 0, s)
+    q.news = True
+    back = read_drive(q, t, 6, 0, s)
+    assert pause.refractory == 0.5 and back.refractory == 0.0
+    assert back.news == pytest.approx(0.25) and back.total > pause.total * 2

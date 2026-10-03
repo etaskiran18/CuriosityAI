@@ -97,7 +97,7 @@ def pdf_text(path: Path, *, max_pages: int = 300) -> tuple[dict[str, str], str]:
     title = _clean_meta(getattr(info, "title", None) if info else None)
     author = _clean_meta(getattr(info, "author", None) if info else None)
     body = "\n\n".join(pages)
-    if not title or re.search(r"microsoft word|untitled|\.docx?$|\.tex$|^paper$", title, re.IGNORECASE):
+    if not title or _looks_like_header(title) or re.search(r"microsoft word|untitled|\.docx?$|\.tex$|^paper$", title, re.IGNORECASE):
         title = _first_title_line(body) or path.stem.replace("_", " ")
     return {"title": title, "author": author, "pages": str(len(reader.pages))}, body
 
@@ -110,12 +110,33 @@ def clean_pdf_text(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+_HEADER_START = (
+    "abstract", "arxiv", "doi", "http", "www", "received", "accepted", "published", "citation", "keywords",
+    "key points", "volume", "vol.", "journal", "research article", "original article", "original paper",
+    "article", "letter", "copyright", "open access", "cite this", "correspondence", "page ",
+)
+
+
+def _looks_like_header(line: str) -> bool:
+    """A journal's running header, not a title: 'SCIENCE ADVANCES | RESEARCH ARTICLE',
+    'Annales Geophysicae (2001) 19: 147-157 (c) European Geophysical Society 2001'."""
+    low = line.lower()
+    letters = [c for c in line if c.isalpha()]
+    return (
+        low.startswith(_HEADER_START)
+        or any(mark in line for mark in ("|", "\u00a9", "c\u00a9", "(c)"))
+        or bool(re.search(r"\(\d{4}\)\s*\d+\s*[:,]", line))  # "(2001) 19: 147"
+        or bool(re.search(r"\bdoi\b|\bissn\b|\bvol\.|\bpp\.", low))
+        or (len(letters) > 8 and sum(c.isupper() for c in letters) / len(letters) > 0.8)  # SHOUTED
+    )
+
+
 def _first_title_line(body: str) -> str:
-    for line in body.splitlines()[:15]:
+    for line in body.splitlines()[:25]:
         line = line.strip()
-        if line.startswith("[page") or not line:
+        if line.startswith("[page") or not line or _looks_like_header(line):
             continue
-        if 3 <= len(line.split()) <= 25 and not line.lower().startswith(("abstract", "arxiv", "doi", "http")):
+        if 3 <= len(line.split()) <= 25:
             return line
     return ""
 

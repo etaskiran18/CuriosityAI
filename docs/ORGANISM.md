@@ -82,8 +82,9 @@ pull(q) = [ w_gap        * gap(confidence) * anchoring
           + w_progress   * learning_progress
           + w_surprise   * surprise
           + w_novelty    * novelty
-          + w_importance * importance ] * (1 - boredom) * (1 - refractory)
-                                       * (1 - topic_anchor * (1 - relevance))
+          + w_importance * importance
+          + news ] * (1 - boredom) * (1 - refractory)
+                   * (1 - topic_anchor * (1 - relevance))
 ```
 
 * `gap = 4c(1-c)`, where `c` is the confidence in the current answer.
@@ -107,6 +108,9 @@ pull(q) = [ w_gap        * gap(confidence) * anchoring
 * `novelty = 1 / (1 + visits)`.
 * `boredom`: zero until `boredom_patience` visits without progress, then rising by 0.35 per visit.
 * `refractory = 0.5` if the question was visited in the previous heartbeat, to discourage rumination.
+* `news = 0.25` when texts were fetched for the question since its last visit: it goes back to see whether
+  they answer it (no refractory pause then). Without this, a first research run fetched texts for a
+  question and never looked at the question again.
 * `relevance`: how directly the question serves the main topic (0 to 1). The judge rates every new
   question (0-3) in a call of its own. A question is **set aside** (not pursued) when both the judge's
   rating and the topic's own words put it below `topic.min_relevance`: a small judge sometimes rates
@@ -139,6 +143,9 @@ support the claim at all. v9 adds the last four points below.
   A theory of curiosity that vague is not adopted at reflection.
 * **Conceding is not winning**: after Wonder concedes an objection its confidence cannot rise, and
   after a revision it can rise by at most 0.10.
+* **No citations from memory**: Wonder and Skeptic may refer only to the passages they were shown. A
+  turn that cites other papers ("T. Nakamura et al., JGR vol. 82") is marked unverified in the diary
+  and counted in the report: such references may be invented.
 * **Only confirmed predictions make an answer surer.** Without a confirmation the judge accepted,
   confidence rises by at most 0.05, however surprising the side findings were.
 * **Confidence moves in bounded steps**: at most 0.25 per heartbeat, at most +0.05 without evidence,
@@ -160,6 +167,14 @@ confidence or a doubt in a heartbeat where the judge accepted a confirmation or 
 surprise, diversity of questions visited, new questions per episode, questions settled per episode,
 and closeness to the topic. A confidence bump with no evidence behind it does not count: in the first
 real hour that was exactly what made every self-check say "healthy" while it drifted.
+**Depth before breadth.** A first research run asked a new question at almost every heartbeat and
+never returned to one; four of them were the same question reworded. Now a new question needs a reason:
+a "surprise" needs evidence the judge accepted and a real prediction error, a "contradiction" needs a
+contradiction, an "objection" needs the skeptic to have quoted a text, and a question born from a gap
+waits until its parent has had a second look (`min_visits_before_children`, 2): a gap is a gap only if it
+is still there when you look again, often with newly fetched texts. Proposals without a reason yet are
+noted in the diary ("kept for a second look").
+
 It then diagnoses its state and nudges its temperament in small, bounded steps:
 
 | Diagnosis | Pattern | Response |
@@ -225,7 +240,9 @@ A curious reader whose books fall silent goes to the library. With `--web` (or
    * **Semantic Scholar**, then **arXiv**: paper abstracts. Semantic Scholar is often busy without a free
      API key in `SEMANTIC_SCHOLAR_API_KEY`; arXiv needs no key (one request every three seconds).
    * **Relevance check**: a found text is kept only if it shares at least two words with the question and
-     the topic, beyond the words searched for. "Curiosity" the Mars rover shares only its name.
+     the topic, beyond the words searched for ("Curiosity" the Mars rover shares only its name), and the
+     judge, reading its title and beginning, finds it useful for the question ("Magnetosphere of Saturn"
+     shares many words with a question about Earth's inner magnetosphere).
    * **Busy is not "nothing found"**: when a source cannot be asked (rate limit, no network), the diary
      and the report say so, instead of claiming that the literature is silent.
 4. **Provenance.** Every acquired text goes into `memory/organism/library/` with front matter giving

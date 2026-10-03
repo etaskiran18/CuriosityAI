@@ -69,6 +69,7 @@ class Diary:
                 f"surprise {d.get('surprise', 0):.2f}, novelty {d.get('novelty', 0):.2f}, "
                 f"importance {d.get('importance', 0):.2f}, boredom {d.get('boredom', 0):.2f}, "
                 f"on topic {d.get('relevance', 1):.2f}"
+                + (", and **new texts arrived for it**" if d.get("news") else "")
             ),
         ]
         if len(ranking) > 1:
@@ -104,6 +105,8 @@ class Diary:
             for turn in ep.dialogue:
                 stance = f" ({turn['stance']}s)" if turn.get("stance") else ""
                 evidence = " *(quoting the text)*" if turn.get("evidence") == "quote" else ""
+                if turn.get("citations") == "unverified":
+                    evidence += " *(cites papers it was not shown: unverified, possibly invented)*"
                 lines.append(f"> **{turn['voice']}{stance}:**{evidence} {one_line(turn['text'], 1200)}")
                 lines.append(">")
             lines.pop()
@@ -140,6 +143,8 @@ class Diary:
                 lines.append(f"- Reawakened **{qid}**: {nq.text}")
         for text in ep.set_aside_questions:
             lines.append(f"- Set aside as off my topic: {text}")
+        for text in ep.held_back_questions:
+            lines.append(f"- Kept for a second look (I will ask it if the gap is still there): {text}")
         if ep.acquisitions:
             lines.append(f"- My books said little here, so I went to the library and brought back: {'; '.join(ep.acquisitions)}")
         if ep.library_misses:

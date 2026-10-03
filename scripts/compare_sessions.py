@@ -54,6 +54,8 @@ ROWS = [
     ("vague_answers", "answers too vague to be wrong"),
     ("mean_on_topic", "closeness to the topic"),
     ("questions_set_aside", "questions set aside (off topic)"),
+    ("questions_held_back", "questions kept for a second look"),
+    ("dialogue_unverified_citations", "debate turns citing unseen papers"),
     ("acquisitions", "texts acquired"),
     ("library_rejected", "texts found but off topic"),
     ("library_busy", "searches blocked by a busy source"),

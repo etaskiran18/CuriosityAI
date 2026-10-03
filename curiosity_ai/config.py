@@ -326,6 +326,11 @@ class OrganismConfig(BaseModel):
     max_open_questions: int = 25
     # One new question per heartbeat at most: depth before breadth.
     max_new_questions_per_heartbeat: int = 1
+    # A question born from a gap or an objection waits until its parent has had this many looks:
+    # a gap is a gap only if it is still there on the second look. (Surprises and contradictions
+    # the judge accepted give birth at once.)
+    min_visits_before_children: int = 2
+    news_bonus: float = 0.25  # pull back to a question when texts were fetched for it
     dedupe_similarity: float = 0.45
     # Ask once more when predictions are hedged ("may", "might"): they could never be wrong.
     prediction_retry: bool = True
@@ -345,7 +350,7 @@ class OrganismConfig(BaseModel):
     export_experience: bool = True
     trace_llm: bool = False  # write every prompt and raw model reply to llm_trace.jsonl (for tuning prompts)
     max_tokens_text: int = 260
-    max_tokens_json: int = 700
+    max_tokens_json: int = 1000  # a reply cut off by this limit is repaired, keeping what was complete
     temperament: TemperamentConfig = Field(default_factory=TemperamentConfig)
     body: BodyConfig = Field(default_factory=BodyConfig)
     librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)

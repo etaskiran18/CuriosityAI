@@ -223,3 +223,26 @@ def test_the_judge_can_be_checked_by_hand(config):
     out = subprocess.run([sys.executable, str(REPO / "scripts" / "judge_agreement.py"), str(path)], capture_output=True, text=True, check=True)
     assert "The judge agreed with you:" in out.stdout and "100%" in out.stdout
     assert report.metrics["judge_pairs"] > 0 and report.metrics["judge_agreement"] is not None
+
+
+def test_journal_headers_are_not_titles():
+    from curiosity_ai.organism.papers import _first_title_line, _looks_like_header
+
+    body = "[page 1]\nSCIENCE ADVANCES | RESEARCH ARTICLE\nSPACE SCIENCES\nLightning-generated whistlers as remote probes of the plasmapause\nJ. Smith"
+    assert _first_title_line(body) == "Lightning-generated whistlers as remote probes of the plasmapause"
+    assert _looks_like_header("Annales Geophysicae (2001) 19: 147-157 (c) European Geophysical Society 2001")
+    assert not _looks_like_header("Statistics and Models of the Electron Plasma Density From the Van Allen Probes")
+
+
+def test_a_quote_copied_cleanly_from_noisy_pdf_text_is_accepted():
+    from curiosity_ai.organism.textutil import verify_quote
+
+    pdf = "Lightning-generated whistlers can serve as remote probes [24, 25] of its structure, and their interaction contributes to space weather."
+    assert verify_quote("Lightning-generated whistlers can serve as remote probes of its structure", pdf)
+    assert verify_quote("whistlers can serve as remote probes of the plasmasphere density after storms", pdf) is None
+    assert verify_quote("remote probes of structure", pdf) is None  # short quotes must match exactly
+
+
+def test_a_researcher_starts_with_no_theory(research_config):
+    org = CuriosityOrganism(research_config, llm=ScriptedLLM())
+    assert org.state.self_model.understanding_of_topic.startswith("I have no theory")

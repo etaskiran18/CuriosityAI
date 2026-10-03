@@ -53,7 +53,8 @@ STEPS = {
 and therefore learning, possible. Each expectation is one definite claim that a passage could prove wrong:
 who will say it (an author or text in your library), what they will say, and how probable it is (0.05 to 0.95)
 that the texts support it. Do not write "may", "might", "could" or "possibly": state the claim plainly and put
-your doubt into the probability. Claims about what a named author holds are the most useful.
+your doubt into the probability. Say what an author holds or found, not what they "will discuss": a topic
+cannot be wrong, a claim can.
 """,
     "COMPARE": """
 [COMPARE] You check your earlier expectations against passages you have just read.
@@ -115,6 +116,12 @@ If the claim names who holds it, a quote from someone else cannot support it.
 Judge only the words given, not what you know yourself.
 """.strip()
 
+JUDGE_TEXT = """
+[JUDGE] You are a strict, impartial reader. A search found a text; you decide from its title and beginning
+whether it is worth reading for a question. Sharing a word with the question is not enough: a text about
+another planet, another field or another meaning of the word is unrelated.
+""".strip()
+
 GRADE = """
 [GRADE] You grade an answer against a reference answer, strictly and fairly.
 - correct: it gives the reference's main point (other words are fine);
@@ -133,7 +140,7 @@ ANTICIPATE_SCHEMA = """
   "answer": "your best current answer, 1-2 sentences",
   "confidence": "number from 0.0 (no idea) to 1.0 (certain)",
   "expectations": [
-    {"author": "who will say it, e.g. Dewey", "claim": "what they will say, stated plainly", "probability": "0.05 to 0.95"}
+    {"author": "one author's family name, e.g. Dewey", "claim": "what they hold or found, stated plainly", "probability": "0.05 to 0.95"}
   ]
 }
 """.strip()
@@ -195,6 +202,13 @@ JUDGE_SCHEMA = """
 {
   "verdicts": [{"pair": 1, "verdict": "supports or contradicts or neither", "reason": "a few words"}],
   "ratings": [{"question": 1, "rating": "0, 1, 2 or 3"}]
+}
+""".strip()
+
+TEXT_RATING_SCHEMA = """
+{
+  "rating": "0, 1, 2 or 3",
+  "reason": "a few words"
 }
 """.strip()
 

@@ -35,7 +35,7 @@ time-split tests. See [docs/RESEARCHER.md](docs/RESEARCHER.md).
 * Each heartbeat now makes 9 calls to the model (10 when it must restate hedged predictions), up from 6: the judge checks the quotes, then the new beliefs, then rates the new question, each in a short call of its own (a small model mixes up two tasks in one call).
 * After updating, start a new life (`--new-life`): beliefs in an old life were graded by the old,
   more lenient rules.
-* Tests: 160, all offline (the scripted model now also plays the judge, the grader and the topic setup).
+* Tests: 180, all offline (the scripted model now also plays the judge, the grader and the topic setup).
 
 ## Tested on a real model
 
@@ -65,3 +65,22 @@ The run also found problems, fixed before release:
   genuinely surprised you") are removed.
 * The report said "mean Brier score 0.00" when no prediction was addressed; it now says there is no
   score yet.
+
+## After the first research run (mistral 7B, a space-physics topic)
+
+* **Deeper investigation.** It visited 9 questions in 9 heartbeats and returned to none; 4 of its new
+  questions were one question reworded. Now it returns to a question when texts were fetched for it, and
+  a new question needs a reason (see "Depth before breadth" in docs/ORGANISM.md).
+* **Replies cut off by the length limit** ("Could not extract JSON object") are repaired, keeping every
+  complete value; the limit is raised to 1000 tokens, and authors are asked for as one family name.
+* **"Carpenter will discuss X" counts as hedged**: it says what a text is about, not what it claims, and
+  can never be contradicted. It is asked again as a claim.
+* **References from memory** in the debate ("T. Nakamura et al., JGR vol. 82, 1977") are marked
+  unverified; the voices are told to cite only the passages they read.
+* **The judge approves fetched texts** (it would have refused "Magnetosphere of Saturn"): one short extra call per text a search finds.
+* **Paper titles** no longer come from journal headers ("SCIENCE ADVANCES | RESEARCH ARTICLE").
+* **Quotes from PDFs**: a sentence copied cleanly from text with layout noise inside (citation marks, a
+  word from the next column) counts; 11 of its 12 claimed quotes had been rejected.
+* **A busy source is named** in the diary (Semantic Scholar, arXiv or Wikipedia), and a busy site rests
+  for 2 minutes instead of 5.
+

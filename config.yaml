@@ -212,6 +212,7 @@ organism:
   reflect_every: 5              # self-reflection and self-regulation rhythm
   max_open_questions: 25        # fewer open questions, more depth
   max_new_questions_per_heartbeat: 1  # depth before breadth
+  min_visits_before_children: 2 # a question born from a gap waits until its parent has had a second look
   max_confidence_step: 0.25     # confidence can only change gradually...
   settle_confidence: 0.8        # ...and a question settles when confident and no longer surprised
   homeostasis: true             # let the organism adjust its own temperament

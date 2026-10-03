@@ -64,6 +64,14 @@ Your questions are always treated as central to the topic.
 Every quote in the map was found in the source and accepted by a separate, blind judge. A "possible
 gap" means *its* library is silent, not that nobody has studied the question; it is a place to look.
 
+## How it goes deep
+
+* After it fetches texts for a question, it goes back to that question to read them.
+* A new question needs a reason: evidence the judge accepted, or a gap that is still there on a second
+  look. So it works on a few questions several times instead of asking a new one at every heartbeat.
+* A question that stays silent after several looks gets boring and rests ("dormant"); it wakes up again
+  when new related beliefs arrive.
+
 ## How it stays useful
 
 The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
@@ -72,6 +80,8 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 * a blind judge decides what each quote really supports; a sample is saved for you to check;
 * answers must say what would prove them wrong; vague answers ("complex", "many factors") earn no confidence;
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
+* texts it fetches must be useful for the question, as the judge reads their title and beginning;
+* the debate may cite only the passages it read; references from memory are marked unverified;
 * at most one new question per heartbeat: depth before breadth.
 
 ## Your own exam
