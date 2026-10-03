@@ -416,3 +416,22 @@ def test_background_texts_pass_and_unrelated_ones_do_not(config):
         http = Http("test-agent", min_interval=0, sleep=lambda s: None, session=FakeSession(FakeInternet()))
         org.librarian = Librarian(config.organism.librarian, org.library_dir, http=http)
         assert bool(org.heartbeat().acquisitions) == kept
+
+
+@pytest.mark.parametrize("title, elsewhere", [
+    ("Whistler wave propagation through the ionosphere of Venus", True),
+    ("Resonant Inverse Compton Scattering and Hard X-ray Emission in Magnetar Magnetospheres", True),
+    ("Runaway electron interactions with whistler waves in tokamak plasmas", True),
+    ("Modeling whistler-mode waves with electrons in the solar wind inside 0.3 AU", True),
+    ("Overview of Saturn lightning observations", True),
+    ("VLF transmitters as tools for monitoring the plasmasphere", False),
+    ("Specularly reflected whistler: A low-latitude channel to couple lightning energy to the magnetosphere", False),
+])
+def test_a_text_about_another_world_star_or_device_is_off_topic(title, elsewhere):
+    context = "How does lightning illuminate the inner magnetosphere? whistlers plasmapause radiation belt Earth"
+    assert bool(Librarian._elsewhere(title, context)) is elsewhere
+
+
+def test_a_topic_about_that_place_keeps_it():
+    assert Librarian._elsewhere("Lightning on Venus", "How common is lightning on Venus?") == ""
+

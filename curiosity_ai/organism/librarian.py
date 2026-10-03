@@ -45,6 +45,15 @@ if TYPE_CHECKING:
 
 USER_AGENT_PRODUCT = "CuriosityAI/0.8"
 
+# Other worlds, stars and laboratory devices: a text about one of them is about another place, unless the
+# question or the topic names it (a topic on Venus wants Venus).
+_ELSEWHERE_RE = re.compile(
+    r"\b(?:Venus|Venusian|Mars|Martian|Jupiter|Jovian|Saturn|Saturnian|Uranus|Neptune|Pluto|Ganymede|Enceladus"
+    r"|exoplanets?|magnetars?|pulsars?|neutron stars?|black holes?|white dwarfs?|quasars?|galax(?:y|ies)|accretion dis[ck]s?"
+    r"|tokamaks?|stellarators?|in the solar wind|solar flares?)\b",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class Acquisition:
@@ -582,6 +591,19 @@ class Librarian:
     def _approved(self, title: str, beginning: str) -> bool:
         return self.approve is None or self.approve(title, beginning)
 
+    @staticmethod
+    def _elsewhere(title: str, context: str) -> str:
+        """The other world, star or device a title is about, if the question and topic never mention it.
+
+        A small judge let in "Whistler wave propagation through the ionosphere of Venus", "Resonant inverse
+        Compton scattering in magnetar magnetospheres" and "Runaway electron interactions with whistler waves
+        in tokamak plasmas" for questions about Earth's inner magnetosphere: they share every word but the place.
+        """
+        found = _ELSEWHERE_RE.search(title or "")
+        if not found:
+            return ""
+        return "" if token_set(found.group(0)) <= token_set(context) else found.group(0)
+
     def _from_wikipedia(self, topic: str, context: str = "", **meta) -> "Acquisition | str | None":
         result = self.wikipedia.find(topic)
         if result is None:
@@ -591,6 +613,8 @@ class Librarian:
             return _OWNED
         if not self._relevant(topic, context, f"{title} {text[:3000]}"):
             return f"{_OFF_TOPIC}: found '{title}'"
+        if self._elsewhere(title, context):
+            return f"{_OFF_TOPIC}: found '{title}', which is about {self._elsewhere(title, context)}"
         if not self._approved(f"Wikipedia: {title}", text[:1500]):
             return f"{_OFF_TOPIC}: found '{title}', which the judge found not useful"
         front = {
@@ -657,6 +681,8 @@ class Librarian:
         title = paper.get("title", "Untitled")
         if not self._relevant(query, context, f"{title} {paper.get('abstract', '')}"):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}'"
+        if self._elsewhere(title, context):
+            return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which is about {self._elsewhere(title, context)}"
         if not self._approved(title, paper.get("abstract", "")):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which the judge found not useful"
         authors = ", ".join(a.get("name", "") for a in (paper.get("authors") or [])[:3]) or "Unknown"
