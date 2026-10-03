@@ -39,6 +39,22 @@ def words(text: str, start: int, n: int) -> str:
     return " ".join(text.split()[start:start + n])
 
 
+def best_quote(passages: dict[str, str], claim: str, n: int = 10) -> tuple[str, str]:
+    """(label, quote): the n-word stretch that shares most words with the claim, as a careful reader would copy."""
+    from curiosity_ai.organism.textutil import token_set
+
+    wanted = token_set(claim)
+    best = (-1, "", "")
+    for label, text in passages.items():
+        tokens = text.split()
+        for start in range(max(1, len(tokens) - n + 1)):
+            quote = " ".join(tokens[start:start + n])
+            score = len(wanted & token_set(quote))
+            if score > best[0]:
+                best = (score, label, quote)
+    return best[1], best[2]
+
+
 DEFINITE = [
     {"author": "Plato", "claim": "Philosophy begins in wonder, the feeling of a philosopher", "probability": "0.8"},
     {"author": "Dewey", "claim": "Curiosity becomes intellectual through problems found in observation", "probability": 0.6},
@@ -115,6 +131,8 @@ class ScriptedLLM:
             passages = passages_in(user)
             labels = list(passages)
             first, last = labels[0], labels[-1]
+            e1 = re.search(r"^E1: (.*)$", user, re.MULTILINE)
+            e1_source, e1_quote = best_quote(passages, e1.group(1)) if e1 else (first, words(passages[first], 0, 10))
             third = {
                 "expectation": "E3",
                 "status": "contradicted",
@@ -129,7 +147,7 @@ class ScriptedLLM:
                 }
             return {
                 "checks": [
-                    {"expectation": "E1", "status": "confirmed", "source": first, "quote": words(passages[first], 0, 10)},
+                    {"expectation": "E1", "status": "confirmed", "source": e1_source, "quote": e1_quote},
                     {"expectation": 2, "status": "confirmed or contradicted or not_addressed"},
                     third,
                 ],
@@ -160,7 +178,7 @@ class ScriptedLLM:
             if self.settle_override is not None:
                 return self.settle_override
             return {
-                "answer": "Wonder is the felt perplexity that starts inquiry; curiosity is the pursuit it sets in motion.",
+                "answer": "Wonder, the feeling of a philosopher, is the felt perplexity that starts inquiry; curiosity is the pursuit it sets in motion.",
                 "would_be_wrong_if": "A text showed curiosity starting without any felt perplexity.",
                 "confidence": "0.55",
                 "learned": [

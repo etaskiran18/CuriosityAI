@@ -212,6 +212,42 @@ def is_strawman_falsifier(text: str) -> bool:
     return bool(_STRAWMAN_RE.search(text or ""))
 
 
+# "Further research is needed to uncover X" or "X is not yet clearly defined" says that the question is
+# open, not what the answer is. A 7B model held such answers at 0.6 to 0.7.
+_NON_ANSWER_RE = re.compile(
+    r"\b(?:further|more)\s+(?:research|investigation|exploration|study|studies|work)\s+(?:is|are)\s+"
+    r"(?:needed|required|necessary|crucial|essential|warranted)"
+    r"|\bneeds?\s+(?:further|more)\s+(?:research|investigation|exploration|study)"
+    r"|\b(?:is|are|remains?)\s+(?:not\s+yet|yet\s+to\s+be)\s+(?:fully\s+|clearly\s+|definitively\s+|well\s+)?"
+    r"(?:known|understood|defined|determined|identified|established|clear)"
+    r"|\b(?:is|are)\s+not\s+(?:fully\s+|clearly\s+|definitively\s+|well\s+)(?:known|understood|defined|determined|established)"
+    r"|\bremains?\s+(?:unclear|unknown|uncertain|an\s+open\s+question|to\s+be\s+(?:seen|determined|understood))"
+    r"|\bneeds?\s+to\s+be\s+(?:further\s+)?(?:understood|explored|investigated|determined|clarified)",
+    re.IGNORECASE,
+)
+
+
+def is_non_answer(text: str) -> bool:
+    """An answer that only says the question is still open."""
+    return bool(_NON_ANSWER_RE.search(text or ""))
+
+
+def lexically_related(claim: str, quote: str, topic_words: frozenset[str] = frozenset(), *, floor: float = 0.2) -> bool:
+    """Could this quote bear on this claim at all? A cheap check before the judge reads the pair.
+
+    In a real run a 7B judge accepted "The role of lightning polarization is context-dependent" on the
+    quote "The large-scale plasma environment is expected to play a central role in selecting these
+    propagation pathways", which says nothing about polarization. A pair passes only if the two share
+    at least ``floor`` of the shorter one's content words, and at least one word that is not one of the
+    topic's own (every sentence about the topic shares "lightning" and "whistler").
+    """
+    a, b = token_set(claim), token_set(quote)
+    if not a or not b:
+        return False
+    shared = a & b
+    return len(shared) / min(len(a), len(b)) >= floor and bool(shared - topic_words)
+
+
 def vagueness(text: str) -> int:
     """How many distinct non-committal phrases the text leans on."""
     return len({m.group(0).lower() for m in _VAGUE_RE.finditer(text or "")})

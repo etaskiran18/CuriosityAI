@@ -88,10 +88,14 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
         lines.append(f"- **Answer:** {q.answer}")
         if q.id in falsifiers:
             lines.append(f"- **Would be wrong if:** {falsifiers[q.id]}")
+        for e in q.support:
+            lines.append(f'- **Supported by:** "{one_line(e.quote, 200)}" {e.citation}')
+        if not q.support:
+            lines.append("- **Supported by:** no quote the judge accepted for this answer")
         support = [st.beliefs[bid] for bid in q.related_beliefs if bid in st.beliefs and st.beliefs[bid].evidence]
         for b in support[:3]:
             e = b.evidence[0]
-            lines.append(f'- Rests on ({b.id}, {b.status}): {b.statement} - "{one_line(e.quote, 200)}" {e.citation}')
+            lines.append(f'- Related belief ({b.id}, {b.status}): {b.statement} - "{one_line(e.quote, 200)}" {e.citation}')
         for line in contra_by_q.get(q.id, [])[:3]:
             lines.append(f"- Against (a prediction the texts contradicted): {line}")
         lines.append("")

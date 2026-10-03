@@ -123,6 +123,8 @@ class Diary:
         elif ep.strawman_falsifier:
             lines.append("*It would be wrong only if nothing at all, or one thing alone, were at play; no finding can show that, "
                          "so I may grow only a little surer of it.*")
+        if ep.unsupported_answer:
+            lines.append("*The quotes I had do not support this answer, so it cannot keep the confidence the old answer had.*")
         if ep.insight:
             lines.append(f"*Insight:* {ep.insight}")
         for bid in ep.new_belief_ids:

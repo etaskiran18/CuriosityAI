@@ -71,12 +71,41 @@ def test_confidence_moves_in_bounded_steps(config):
     assert ep.confidence == pytest.approx(0.4 + config.organism.max_confidence_step)
 
 
+def _sure(answer: str) -> dict:
+    return {"answer": answer, "would_be_wrong_if": FALSIFIABLE, "confidence": 1.0, "learned": [], "new_questions": []}
+
+
 def test_confidence_cannot_outrun_the_evidence(config):
-    llm = ScriptedLLM(stance="DEFEND", settle={"answer": "Certain now.", "would_be_wrong_if": FALSIFIABLE, "confidence": 1.0, "learned": [], "new_questions": []})
-    org = CuriosityOrganism(config, llm=llm)
+    """An answer is held at most as firmly as the quotes the judge accepted for it allow (0.5 + 0.1 each)."""
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=_sure("Wonder is the feeling of a philosopher.")))
     ep = org.heartbeat()
-    assert org.state.questions["Q1"].visits[-1].support == 1
+    q = org.state.questions["Q1"]
+    assert q.visits[-1].support == 1 and len(q.support) == 1 and "feeling of a philosopher" in q.support[0].quote
     assert ep.confidence == pytest.approx(config.organism.evidence_ceiling_base + config.organism.evidence_ceiling_per_support)
+
+
+def test_an_answer_no_quote_supports_stays_at_the_base(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=_sure("Certain now.")))
+    ep = org.heartbeat()
+    assert org.state.questions["Q1"].support == [] and ep.confidence == pytest.approx(config.organism.evidence_ceiling_base)
+
+
+def test_a_new_answer_does_not_inherit_the_old_answers_confidence(config):
+    """A 7B model held 0.70 for an answer a paper confirmed, swapped it for an unsupported guess and kept 0.70."""
+    from curiosity_ai.organism.research_map import render_research_map
+    from curiosity_ai.organism.state import Evidence, Visit
+
+    guess = "Lightning polarization sets which way the energy goes in the inner sky."
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=_sure(guess)))
+    q = org.state.questions["Q1"]
+    q.confidence, q.answer = 0.7, "Philosophy begins in wonder, the feeling of a philosopher."
+    q.visits.append(Visit(heartbeat=0, confidence_before=0.5, confidence_after=0.7, prediction_error=0.0, informativeness=0.5, support=2))
+    q.support = [Evidence(citation="[BOOK:Theaetetus]", quote="wonder is the feeling of a philosopher", source_title="Plato, Theaetetus")]
+    ep = org.heartbeat()
+    assert ep.answer == guess and ep.unsupported_answer and q.support == []
+    assert ep.confidence == pytest.approx(config.organism.evidence_ceiling_base)
+    assert "cannot keep the confidence the old answer had" in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert "no quote the judge accepted for this answer" in render_research_map(org)
 
 
 def test_certainty_cannot_grow_without_evidence(config):
@@ -257,3 +286,18 @@ def test_living_forever_waits_for_a_silent_model_instead_of_dying(config):
     with pytest.raises(KeyboardInterrupt):
         org.live(forever=True)
     assert waits == [60, 120, 240]  # 1, 2, 4 minutes, and on up to 15
+
+
+def test_a_judge_that_fails_does_not_erase_the_quotes_an_answer_had(config):
+    from curiosity_ai.organism.state import Evidence, Visit
+
+    answer = "Philosophy begins in wonder, the feeling of a philosopher."
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=_sure(answer), fail_steps=("JUDGE",)))
+    q = org.state.questions["Q1"]
+    q.confidence, q.answer = 0.6, answer
+    q.visits.append(Visit(heartbeat=0, confidence_before=0.5, confidence_after=0.6, prediction_error=0.0, informativeness=0.5, support=1))
+    kept = Evidence(citation="[BOOK:Theaetetus]", quote="wonder is the feeling of a philosopher", source_title="Plato, Theaetetus")
+    q.support = [kept]
+    ep = org.heartbeat()
+    assert kept in q.support and not ep.unsupported_answer and ep.confidence >= 0.6 - 1e-9
+

@@ -161,8 +161,20 @@ support the claim at all. v9 adds the last four points below.
   confidence rises by at most 0.05, however surprising the side findings were.
 * **Confidence moves in bounded steps**: at most 0.25 per heartbeat, at most +0.05 without evidence,
   and at most +0.10 when heavily surprised.
-* **Confidence cannot outrun the evidence**: it can never rise above `0.5 + 0.1 x` the number of
-  verified confirmations gathered for that question. Settling (0.8) therefore needs several.
+* **Confidence belongs to the answer, and cannot outrun its evidence.** Each question keeps the quotes
+  the judge accepted for its *current* answer (at most four). Every heartbeat the judge reads the answer
+  against them and against this heartbeat's confirmations, in the same call that checks new beliefs; only
+  the quotes it accepts are kept. Confidence can never be higher than `0.5 + 0.1 x` those quotes, so a new
+  answer does not inherit what an old one earned (a 7B model held 0.70 for an answer a paper confirmed,
+  replaced it with an unsupported guess and kept the 0.70), and settling (0.8) needs three. The research
+  map lists each hypothesis's supporting quotes.
+* **A pair that shares no real words never reaches the judge.** A belief is checked against a quote only
+  if they share at least a fifth of the shorter one's content words, and at least one word that is not
+  the topic's own: "The role of lightning polarization is context-dependent" is not grounded by "The
+  large-scale plasma environment is expected to play a central role in selecting these propagation
+  pathways", although a 7B judge accepted it. The same check applies to the quotes kept for an answer.
+* **An answer that only says the question is open** ("further research is needed", "not yet clearly
+  defined") counts as too vague to be wrong: it earns no confidence.
 * **The comparison is told to be strict**: a passage on a related topic confirms nothing, and most
   expectations will not be addressed. The same quote cannot count as both expected and unexpected.
 * **Beliefs without a verified quote are labelled "interpretation"** and start at lower confidence.

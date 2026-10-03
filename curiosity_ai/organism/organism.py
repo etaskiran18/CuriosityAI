@@ -63,7 +63,9 @@ from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Tem
 from .textutil import (
     clip,
     is_hedged,
+    is_non_answer,
     is_strawman_falsifier,
+    lexically_related,
     jaccard,
     keywords_of,
     one_line,
@@ -318,6 +320,17 @@ class CuriosityOrganism:
         if topic.mode == "philosophy" and not topic.keywords:
             tc = self.oc.topic
             topic.title, topic.description, topic.keywords = tc.title, tc.description, list(tc.keywords)
+
+    def _possible_support(self, q: Question, comparison: Comparison, by_label: dict[str, Observation], answer: str) -> list[Evidence]:
+        """Quotes that might support the answer: those kept for it so far, then this heartbeat's confirmations."""
+        found = list(q.support)
+        seen = {e.quote for e in found}
+        for c in comparison.checks:
+            obs = by_label.get(c.source)
+            if c.status == "confirmed" and c.quote and obs is not None and c.quote not in seen:
+                found.append(Evidence(citation=obs.citation, quote=c.quote, source_title=obs.heading))
+                seen.add(c.quote)
+        return [e for e in found if lexically_related(answer, e.quote, self.topic_words)]
 
     def _topic_for_judge(self) -> str:
         """The main topic as the judge sees it: its title, the person's words and, if known, its meaning in the field."""
@@ -932,12 +945,48 @@ class CuriosityOrganism:
         support, contradicted = comparison.count("confirmed"), comparison.count("contradicted")
         stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
         answer = settlement.answer or anticipation.answer or q.answer
-        vague = vagueness(answer) >= oc.vague_threshold
+        # "Further research is needed to uncover X" says that the question is open, not what the answer is.
+        vague = vagueness(answer) >= oc.vague_threshold or is_non_answer(answer)
         hedged = not vague and is_hedged(answer)
         strawman = bool(settlement.falsifier) and is_strawman_falsifier(settlement.falsifier)
 
-        # Confidence moves in bounded steps, cannot grow without evidence, and can never
-        # rise above what the confirmations the judge accepted so far allow.
+        # The blind judge reads, in one call, the new beliefs against their quotes and the answer against
+        # the quotes that might support it. (It rates proposed questions in a call of its own: small models
+        # mix the two tasks up.) A pair that shares almost no words never reaches it.
+        learned = settlement.learned[:3]
+        belief_pairs: list[tuple[int, Pair, Observation]] = []
+        for i, item in enumerate(learned):
+            if is_hedged(item.belief):
+                continue  # "X may play a role" is supported by almost any related quote: it stays an interpretation
+            obs = by_label.get(item.source or "")
+            candidates = quotes.get(item.source or "", []) if obs else []
+            if candidates:
+                best = max(candidates, key=lambda quote: overlap(item.belief, quote))
+                if lexically_related(item.belief, best, self.topic_words):
+                    belief_pairs.append((i, Pair(item.belief, best, obs.heading), obs))
+        possible_support = self._possible_support(q, comparison, by_label, answer)
+        answer_pairs = [Pair(answer, e.quote, e.source_title) for e in possible_support]
+        verdicts: list[Verdict] = []
+        if self.judge is not None and (belief_pairs or answer_pairs):
+            verdicts, _ = self.judge.judge([pair for _, pair, _ in belief_pairs] + answer_pairs, errors=errors)
+        answer_verdicts = verdicts[len(belief_pairs):]
+
+        # Confidence belongs to an answer, not to a question. A 7B model held 0.70 for an answer about
+        # field-aligned irregularities that a paper confirmed, then replaced it with a guess about "lightning
+        # polarization" and kept the 0.70. The question keeps only the quotes the judge accepts for its
+        # current answer, and confidence can never be higher than they allow.
+        if self.judge is None:
+            q.support = possible_support[-4:]
+        else:
+            kept_before = {e.quote for e in q.support}
+            q.support = [
+                e for e, v in zip(possible_support, answer_verdicts)
+                # a quote it kept stays when the judge gave no verdict (a failed call must not erase evidence)
+                if v.verdict == "supports" or (v.verdict == "unjudged" and e.quote in kept_before)
+            ][-4:]
+        ceiling = min(0.95, oc.evidence_ceiling_base + oc.evidence_ceiling_per_support * len(q.support))
+
+        # Confidence moves in bounded steps and cannot grow without evidence.
         proposed = settlement.confidence if settlement.confidence is not None else prior_confidence
         delta = max(-oc.max_confidence_step, min(oc.max_confidence_step, proposed - prior_confidence))
         if delta > 0 and support == 0:
@@ -955,10 +1004,8 @@ class CuriosityOrganism:
             # cannot say what would refute it, or would be refuted only if X played no role at all.
             # Doubt belongs in the confidence, not in the wording.
             delta = min(delta, 0.05)
-        new_confidence = clamp(prior_confidence + delta, 0.02, 0.98)
-        ceiling = min(0.95, oc.evidence_ceiling_base + oc.evidence_ceiling_per_support * (support + sum(v.support for v in q.visits)))
-        if new_confidence > prior_confidence:
-            new_confidence = min(new_confidence, max(prior_confidence, ceiling))
+        new_confidence = min(clamp(prior_confidence + delta, 0.02, 0.98), ceiling)
+        unsupported = prior_confidence > ceiling + 1e-9  # what it held came from evidence that does not bear on this answer
         q.confidence = new_confidence
         q.answer = answer
         q.visits.append(
@@ -974,23 +1021,8 @@ class CuriosityOrganism:
         q.last_visited = hb
         q.news = False  # whatever was fetched for it has now been read
 
-        # The blind judge checks the new beliefs' quotes, then (separately: small models mix the two
-        # tasks up) rates how central each proposed question is to the topic.
-        learned = settlement.learned[:3]
-        belief_pairs: list[tuple[int, Pair, Observation]] = []
-        for i, item in enumerate(learned):
-            if is_hedged(item.belief):
-                continue  # "X may play a role" is supported by almost any related quote: it stays an interpretation
-            obs = by_label.get(item.source or "")
-            candidates = quotes.get(item.source or "", []) if obs else []
-            if candidates:
-                best = max(candidates, key=lambda quote: overlap(item.belief, quote))
-                belief_pairs.append((i, Pair(item.belief, best, obs.heading), obs))
         proposals = [nq for nq in settlement.new_questions if not self._same_question(nq.text, q.text)][:3]
-        verdicts: list[Verdict] = []
         ratings: list[float | None] = []
-        if self.judge is not None and belief_pairs:
-            verdicts, _ = self.judge.judge([pair for _, pair, _ in belief_pairs], errors=errors)
         if self.judge is not None and proposals:
             _, ratings = self.judge.judge(
                 [], questions=[nq.text for nq in proposals], topic=self._topic_for_judge(), errors=errors
@@ -1135,6 +1167,8 @@ class CuriosityOrganism:
             vague=vague,
             hedged_answer=hedged,
             strawman_falsifier=strawman,
+            unsupported_answer=unsupported,
+            answer_support=len(q.support),
             confidence=new_confidence,
             insight=settlement.insight,
             new_belief_ids=new_beliefs,

@@ -136,3 +136,27 @@ field-line curvature scattering). But 16 of its 19 grounded beliefs quoted the p
   role"); almost any related quote supports such a sentence. Hedged beliefs now stay interpretations.
 * **Answers that were questions** ("Can we infer ... thresholds ...?") replaced real answers; they no
   longer do.
+
+## After the fourth research run (51 heartbeats, local PC)
+
+The rules from the third run held: 8 doubts of quoted beliefs refused, 17 strawman falsifiers and 18
+hedged answers capped, 1 hedged prediction in 192. But the whole map came to rest on "lightning
+polarization", a guess Wonder made at heartbeat 17 that no text supports:
+
+* **Borrowed confidence.** Q3 reached 0.70 with an answer about field-aligned irregularities that a
+  paper confirmed; at heartbeat 21 the answer became a polarization guess and kept 0.70 (later 0.75),
+  because the irregularity predictions were confirmed again. Confidence now belongs to the answer: the
+  question keeps the quotes the judge accepted for its current answer, re-checked every heartbeat in the
+  call that already checks beliefs, and confidence cannot exceed `0.5 + 0.1 x` those quotes.
+* **Quotes accepted for claims they do not mention.** One sentence of the person's article ("The
+  large-scale plasma environment is expected to play a central role ...") grounded five beliefs, among
+  them "The role of lightning polarization is context-dependent". A belief and a quote now reach the judge
+  only if they share a fifth of their words, one of them not a topic word. On the 35 grounded pairs of
+  the second to fourth runs this refuses 13, all unsupported, and keeps every pair a reader would accept.
+  (On the 44 confirmed predictions of this run the same check would also refuse two real confirmations,
+  so predictions are left to the judge.)
+* **Non-answers held at 0.6-0.7** ("Further research is crucial to uncover ...", "are yet to be clearly
+  defined") now count as too vague to be wrong.
+* Still open: 44 confirmations and no contradiction in 51 heartbeats (predictions general enough that
+  texts can only agree or stay silent), and 11 of its 12 grounded beliefs quote the person's own article.
+

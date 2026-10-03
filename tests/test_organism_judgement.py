@@ -10,7 +10,7 @@ from curiosity_ai.organism.judge import Judge, Pair, rating_of, verdict_of
 from curiosity_ai.organism.organism import Check, Comparison, _quotes_a_passage, _stance
 from curiosity_ai.organism.senses import Observation
 from curiosity_ai.organism.state import Evidence
-from curiosity_ai.organism.textutil import is_hedged, is_strawman_falsifier, vagueness
+from curiosity_ai.organism.textutil import is_hedged, is_non_answer, is_strawman_falsifier, lexically_related, token_set, vagueness
 
 from .organism_fakes import ScriptedLLM
 
@@ -400,4 +400,59 @@ def test_a_belief_resting_on_a_text_yields_only_to_a_contradiction(config):
     config.organism.home += "-contradicted"
     org, belief, ep = live(contradict_for_real=True)
     assert ep.contradicted == 1 and ep.doubted_belief_ids == [belief.id]
+
+
+# -- after the fourth research run --------------------------------------------------------
+
+TOPIC = token_set("lightning whistlers VLF inner magnetosphere plasmapause radiation belt electromagnetic energy ionosphere plasma")
+CENTRAL = "The large-scale plasma environment is expected to play a central role in selecting these propagation pathways."
+
+
+@pytest.mark.parametrize("claim, quote", [
+    ("The role of lightning polarization is context-dependent in the Earth's inner magnetosphere.", CENTRAL),
+    ("Plasma instabilities resonate with the frequency of lightning-generated whistlers", CENTRAL),
+    ("Plasma instabilities amplify the energy of lightning-generated whistlers", "SR whistlers to the lightning energy reaching the magnetosphere."),
+    ("Resonant scattering of electrons by whistler waves is a primary mechanism for electron scattering loss.",
+     "Lightning-generated whistlers carry electromagnetic energy from lightning into Earth's inner magnetosphere"),
+])
+def test_a_quote_that_shares_no_real_words_with_a_claim_never_reaches_the_judge(claim, quote):
+    assert not lexically_related(claim, quote, TOPIC)
+
+
+@pytest.mark.parametrize("claim, quote", [
+    ("The plasma environment plays a crucial role in shaping the pathways of lightning-generated waves.", CENTRAL),
+    ("The plasmapause acts as a refracting point for whistler-mode energy",
+     "The plasmapause can act as a one-sided VLF waveguide, allowing whistler-mode energy to propagate along its density gradient"),
+    ("Specularly reflected whistlers provide an additional pathway for lightning energy to reach the magnetosphere.",
+     "Specularly reflected (SR) whistlers provide an additional pathway by which lightning energy injected at low latitudes"),
+])
+def test_a_quote_that_restates_a_claim_does(claim, quote):
+    assert lexically_related(claim, quote, TOPIC)
+
+
+@pytest.mark.parametrize("answer, open_", [
+    ("Further research is crucial to uncover the specific plasma conditions that shape the pathways.", True),
+    ("The specific conditions are yet to be clearly defined, but higher density may play a role.", True),
+    ("The precise role of polarization is not definitively known.", True),
+    ("The role of lightning polarization needs further exploration to improve predictions.", True),
+    ("The plasmapause organizes the pathways of lightning-generated waves.", False),
+    ("Whistlers inside the plasmasphere are ducted; outside it they propagate unducted.", False),
+])
+def test_an_answer_that_only_says_the_question_is_open(answer, open_):
+    assert is_non_answer(answer) is open_
+
+
+def test_an_answer_that_only_says_the_question_is_open_earns_no_confidence(config):
+    config.organism.evidence_ceiling_base = 1.0
+    still_open = "What wonder is, exactly, is not yet fully understood, and further research is needed."
+    ep = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=settle(answer=still_open))).heartbeat()
+    assert ep.vague and ep.confidence <= ep.prior_confidence
+
+
+def test_a_belief_its_quote_does_not_mention_stays_an_interpretation(config):
+    learned = [{"belief": "Soup needs salt and a bay leaf to taste right.", "source": "S1"}]
+    org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(learned=learned)))  # the scripted judge accepts anything
+    ep = org.heartbeat()
+    assert org.state.beliefs[ep.new_belief_ids[0]].interpretive
+    assert not any(j["kind"] == "belief" for j in ep.judgments)  # the pair never reached the judge
 

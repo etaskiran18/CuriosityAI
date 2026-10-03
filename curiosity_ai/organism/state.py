@@ -59,6 +59,7 @@ class Question(BaseModel):
     last_library_visit: int | None = None
     news: bool = False  # texts were fetched for it since its last visit: go back and see if they answer it
     related_beliefs: list[str] = Field(default_factory=list)
+    support: list[Evidence] = Field(default_factory=list)  # quotes the judge accepted for the current answer
     # How directly the question serves the main topic (0 off topic .. 1 central).
     # None: not rated yet; it is then estimated from the topic's words.
     relevance: float | None = None
@@ -168,6 +169,8 @@ class Episode(BaseModel):
     vague: bool = False  # the answer was too vague to be wrong, so confidence could not rise
     hedged_answer: bool = False  # the answer was hedged ("may", "could"), so confidence could rise by 0.05 at most
     strawman_falsifier: bool = False  # it would be wrong only if nothing at all (or one thing alone) were at play
+    unsupported_answer: bool = False  # its quotes did not support the new answer, so confidence was lowered to what they allow
+    answer_support: int = 0  # quotes the judge accepted for the answer after this heartbeat
     confidence: float = 0.0
     insight: str = ""
     new_belief_ids: list[str] = Field(default_factory=list)

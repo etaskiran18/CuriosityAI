@@ -62,7 +62,7 @@ Your questions are always treated as central to the topic.
 
 | File in the life's folder | What it is |
 |---|---|
-| `research_map.md` | **The main result.** Open questions ranked by how strongly they pull it; hypotheses (answers it holds with confidence 0.5 or more), what would refute each, the quoted beliefs they rest on, and the predictions the papers contradicted; **surprises** (predictions the papers contradicted); **possible gaps** (questions its papers kept silent about, even after searching); beliefs it came to doubt; a reading list. |
+| `research_map.md` | **The main result.** Open questions ranked by how strongly they pull it; hypotheses (answers it holds with confidence 0.5 or more), what would refute each, the quotes the judge accepted for each answer ("Supported by"), related quoted beliefs, and the predictions the papers contradicted; **surprises** (predictions the papers contradicted); **possible gaps** (questions its papers kept silent about, even after searching); beliefs it came to doubt; a reading list. |
 | `diary.md` | Every heartbeat in words: what it predicted (with probabilities), what it read, what the judge accepted, the debate, what changed. |
 | `sessions/<id>/report.md` | Each session's summary and numbers. |
 | `mind.json` | Everything it knows and wonders about, as data. |
@@ -88,6 +88,8 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
   and hedged ones ("may play a role", "could potentially") earn very little, as do answers that would be
   wrong only "if X played no role at all";
 * a belief resting on a quote from your papers is doubted only when a text contradicts it;
+* an answer is held only as firmly as the quotes that support *it* allow: a new answer does not inherit
+  the confidence of the old one, and an answer no quote supports stays at 0.5 or below;
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
 * texts it fetches must not be unrelated to the question, as the judge reads their title and beginning
   (background articles are kept);
