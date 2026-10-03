@@ -1,6 +1,8 @@
 """Predictions that can be wrong, a blind judge, and a debate with consequences."""
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from curiosity_ai.organism import CuriosityOrganism
@@ -191,6 +193,30 @@ def test_an_answer_too_vague_to_be_wrong_earns_no_confidence(config):
     ep = org.heartbeat()
     assert ep.vague and ep.confidence <= ep.prior_confidence
     assert "too vague to be wrong" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_a_hedged_answer_gains_little(config):
+    """"Structures may play a role" survives any finding; a 7B model settled questions at 0.85 with such answers."""
+    config.organism.evidence_ceiling_base = 1.0
+    hedged = "The plasmapause may guide whistlers and could potentially affect the radiation belts."
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=settle(answer=hedged)))
+    ep = org.heartbeat()
+    assert ep.hedged_answer and not ep.vague and ep.confidence == pytest.approx(ep.prior_confidence + 0.05)
+    assert "hedged (may, could)" in (org.home / "diary.md").read_text(encoding="utf-8")
+    config.organism.home += "-plain"
+    plain = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=settle())).heartbeat()
+    assert not plain.hedged_answer and plain.confidence > plain.prior_confidence + 0.05
+
+
+def test_the_voices_see_what_was_expected_not_its_labels(config):
+    """Shown only "did not address: E1, E2, E3", a 7B model took E1, E2 and E3 for structures in the magnetosphere."""
+    llm = ScriptedLLM()
+    CuriosityOrganism(config, llm=llm).heartbeat()
+    for step in ("WONDER", "SKEPTIC", "SETTLE"):
+        prompt = llm.prompts[step]
+        assert 'What you expected, "Plato: Philosophy begins in wonder' in prompt or 'What you expected, "Philosophy begins in wonder' in prompt
+        assert "did not clearly address what you expected:" in prompt and "Curiosity becomes intellectual" in prompt
+        assert not re.search(r"\bE\d\b", prompt), step
 
 
 def test_an_answer_that_cannot_say_what_would_refute_it_gains_little(config):

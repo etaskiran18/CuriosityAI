@@ -207,6 +207,7 @@ def compute_metrics(
             sum(1 for e in debates if any(t.get("evidence") == "quote" for t in e.dialogue)) / len(debates), 3
         ) if debates else 0.0,
         "vague_answers": sum(1 for e in episodes if e.vague),
+        "hedged_answers": sum(1 for e in episodes if e.hedged_answer),
         "mean_on_topic": _mean([e.relevance for e in episodes]),
         "questions_set_aside": sum(len(e.set_aside_questions) for e in episodes),
         "questions_held_back": sum(len(e.held_back_questions) for e in episodes),
@@ -278,7 +279,7 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"the texts confirmed {m['predictions_confirmed']} and contradicted {m['predictions_contradicted']}; {_brier_text(m)}.",
         _judge_line(m),
         f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "
-        f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong; "
+        f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong and {m.get('hedged_answers', 0)} hedged (may, could); "
         f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified).",
         f"- **Staying on topic and in depth:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
         f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look.",

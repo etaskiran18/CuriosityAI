@@ -101,3 +101,20 @@ The run also found problems, fixed before release:
 * **A busy source is named** in the diary (Semantic Scholar, arXiv or Wikipedia), and a busy site rests
   for 2 minutes instead of 5.
 
+## After the second research run (mistral 7B, 55 heartbeats, the same topic and papers)
+
+It understood the topic this time (lightning-generated VLF whistlers in the plasmasphere), returned to
+its questions (up to 4 visits each), grounded beliefs in quotes from the person's article and papers,
+and hedged only 4% of its predictions. Three things went wrong:
+
+* **Its own labels became things.** The voices were told "the passages did not clearly address: E1,
+  E2, E3", without what E1, E2 and E3 had said. The model took them for unexplained structures in the
+  magnetosphere and asked about "the lesser-known structures E1, E2, E3 and E4" for the rest of the hour,
+  and the questions about "overlooked" or "yet-to-be-identified" structures grew from there. The voices
+  now see each prediction written out, never only its label.
+* **Hedged answers settled questions.** "The plasmapause ... may collectively guide or distort
+  whistlers, potentially contributing to space weather" settled a question at 0.85. A hedged answer can
+  never be wrong, so it now gains at most 0.05 per heartbeat (as an answer without a falsifier does); the
+  report counts such answers, and the model is asked to state answers plainly.
+* **New questions should be answerable**: "a specific new question that a paper could answer".
+

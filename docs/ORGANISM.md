@@ -140,6 +140,8 @@ support the claim at all. v9 adds the last four points below.
   Brier score rewards being right *and* knowing how sure to be.
 * **Answers must be specific enough to be wrong.** An answer leaning on "complex", "multifaceted",
   "various factors" earns no confidence, and one that cannot say what would refute it gains at most 0.05.
+  So does a hedged answer ("the plasmapause may play a role", "could potentially affect"): like a hedged
+  prediction, it survives any finding. The doubt belongs in the confidence, not in the wording.
   A theory of curiosity that vague is not adopted at reflection.
 * **Conceding is not winning**: after Wonder concedes an objection its confidence cannot rise, and
   after a revision it can rise by at most 0.10.

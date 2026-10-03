@@ -138,6 +138,7 @@ class Comparison:
     checks: list[Check] = field(default_factory=list)
     unexpected: list[dict[str, str]] = field(default_factory=list)
     rejected_quotes: int = 0
+    expectations: list[str] = field(default_factory=list)  # what each check's expectation said, in order
 
     def count(self, status: str) -> int:
         return sum(1 for c in self.checks if c.status == status)
@@ -695,7 +696,7 @@ class CuriosityOrganism:
     def _compare(self, q: Question, anticipation: Anticipation, observations: list[Observation], errors: list[str]) -> Comparison:
         n = len(anticipation.expectations)
         if not observations:
-            return Comparison([Check(i) for i in range(1, n + 1)])
+            return Comparison([Check(i) for i in range(1, n + 1)], expectations=list(anticipation.expectations))
         if anticipation.expectations:
             expectation_lines = "\n".join(f"E{i}: {e}" for i, e in enumerate(anticipation.expectations, start=1))
             task = (
@@ -760,7 +761,7 @@ class CuriosityOrganism:
             unexpected.append({"finding": finding, "source": label, "quote": quote})
         for c in checks.values():
             c.claimed = c.status
-        return Comparison(sorted(checks.values(), key=lambda c: c.expectation), unexpected, rejected)
+        return Comparison(sorted(checks.values(), key=lambda c: c.expectation), unexpected, rejected, list(expectations))
 
     def _judge_comparison(
         self, q: Question, comparison: Comparison, anticipation: Anticipation, observations: list[Observation], errors: list[str]
@@ -890,13 +891,14 @@ class CuriosityOrganism:
             f"Inner dialogue:\n{dialogue_text}\n\n"
             f"Your earlier beliefs that may be related:\n{self._format_beliefs(related)}\n\n"
             "Settle this episode of inquiry:\n"
-            "- answer: your revised answer (1-3 sentences), specific enough to be wrong\n"
+            "- answer: your revised answer (1-3 sentences), specific enough to be wrong, stated plainly without may, might "
+            "or could: put your doubt into the confidence\n"
             "- would_be_wrong_if: one sentence: what finding would show this answer is wrong\n"
             "- confidence: 0.0 to 1.0. Raise it only with support; lower it if you were contradicted or the skeptic found a real weakness\n"
             "- learned: 0 to 3 new beliefs, one sentence each, each with the source label (S1, S2, ...) whose quote supports it\n"
             "- contradicts: ids of the earlier beliefs above (like B2) that the evidence contradicts; [] if none\n"
-            "- new_questions: 0 to 2 specific new questions born from a surprise, a contradiction, a gap, or the skeptic's "
-            f"objection, staying close to this question and to {self.state.topic.title}\n"
+            "- new_questions: 0 to 2 specific new questions that a paper could answer, born from a surprise, a "
+            f"contradiction, a gap, or the skeptic's objection, staying close to this question and to {self.state.topic.title}\n"
             "- unanswerable: true only if no evidence or argument could ever settle this question\n"
             "- insight: one sentence about what you learned"
         )
@@ -929,6 +931,7 @@ class CuriosityOrganism:
         stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
         answer = settlement.answer or anticipation.answer or q.answer
         vague = vagueness(answer) >= oc.vague_threshold
+        hedged = not vague and is_hedged(answer)
 
         # Confidence moves in bounded steps, cannot grow without evidence, and can never
         # rise above what the confirmations the judge accepted so far allow.
@@ -944,8 +947,10 @@ class CuriosityOrganism:
             delta = min(delta, 0.10)  # a revised answer has not been tested yet
         if vague:
             delta = min(delta, 0.0)  # an answer too vague to be wrong earns no confidence
-        elif not settlement.falsifier:
-            delta = min(delta, 0.05)  # nor does one that cannot say what would refute it
+        elif hedged or not settlement.falsifier:
+            # "X may play a role" survives any finding, like a hedged prediction; so does an answer that
+            # cannot say what would refute it. Doubt belongs in the confidence, not in the wording.
+            delta = min(delta, 0.05)
         new_confidence = clamp(prior_confidence + delta, 0.02, 0.98)
         ceiling = min(0.95, oc.evidence_ceiling_base + oc.evidence_ceiling_per_support * (support + sum(v.support for v in q.visits)))
         if new_confidence > prior_confidence:
@@ -1115,6 +1120,7 @@ class CuriosityOrganism:
             answer=q.answer,
             falsifier=settlement.falsifier,
             vague=vague,
+            hedged_answer=hedged,
             confidence=new_confidence,
             insight=settlement.insight,
             new_belief_ids=new_beliefs,
@@ -1523,20 +1529,27 @@ class CuriosityOrganism:
 
     @staticmethod
     def _format_findings(comparison: Comparison, observations: list[Observation]) -> str:
+        """What the passages did to its expectations, written out: a 7B model shown only "did not address: E1, E2,
+        E3" took E1, E2 and E3 for unexplained structures in the magnetosphere and asked about them for an hour."""
         by_label = {o.label: o for o in observations}
+
+        def expected(c: Check) -> str:
+            k = c.expectation - 1
+            return f'"{one_line(comparison.expectations[k], 160)}"' if 0 <= k < len(comparison.expectations) else "one of them"
+
         lines = []
         for c in comparison.checks:
             if c.status in ("confirmed", "contradicted"):
                 obs = by_label.get(c.source)
                 heading = f" {obs.heading}" if obs else ""
-                lines.append(f'- Your expectation E{c.expectation} was {c.status.upper()} by [{c.source}]{heading}: "{c.quote}"')
+                lines.append(f'- What you expected, {expected(c)}, was {c.status.upper()} by [{c.source}]{heading}: "{c.quote}"')
         for u in comparison.unexpected:
             obs = by_label.get(u["source"])
             heading = f" {obs.heading}" if obs else ""
             lines.append(f'- Unexpected, in [{u["source"]}]{heading}: {u["finding"]} - "{u["quote"]}"')
-        silent = [c.expectation for c in comparison.checks if c.status in ("not_addressed", "unverified")]
+        silent = [c for c in comparison.checks if c.status in ("not_addressed", "unverified")]
         if silent:
-            lines.append("- The passages did not clearly address: " + ", ".join(f"E{i}" for i in silent))
+            lines.append("- The passages did not clearly address what you expected: " + "; ".join(expected(c) for c in silent))
         return "\n".join(lines) if lines else "- Nothing relevant was found in the passages."
 
     def _json(self, system: str, user: str, schema: str, *, temperature: float, errors: list[str], step: str) -> dict[str, Any]:

@@ -163,12 +163,12 @@ COMPARE_SCHEMA = """
 
 SETTLE_SCHEMA = """
 {
-  "answer": "your revised answer to the question, 1-3 sentences, specific enough to be wrong",
+  "answer": "your revised answer to the question, 1-3 sentences, specific enough to be wrong, without may or could",
   "would_be_wrong_if": "one sentence: what finding would show this answer is wrong",
   "confidence": "number from 0.0 to 1.0",
   "learned": [{"belief": "one sentence you now believe", "source": "S1"}],
   "contradicts": ["ids of your earlier beliefs that the evidence now contradicts, like B2"],
-  "new_questions": [{"question": "a specific new question", "trigger": "surprise or contradiction or gap or objection", "importance": "number from 0.0 to 1.0"}],
+  "new_questions": [{"question": "a specific new question that a paper could answer", "trigger": "surprise or contradiction or gap or objection", "importance": "number from 0.0 to 1.0"}],
   "unanswerable": false,
   "insight": "one sentence: what this episode taught you"
 }

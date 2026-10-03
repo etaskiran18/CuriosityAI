@@ -118,6 +118,8 @@ class Diary:
             lines.append(f"*I would be wrong if:* {ep.falsifier}")
         if ep.vague:
             lines.append("*My answer is too vague to be wrong, so I may not grow surer of it.*")
+        elif ep.hedged_answer:
+            lines.append("*My answer is hedged (may, could), so it could never be wrong: I may grow only a little surer of it.*")
         if ep.insight:
             lines.append(f"*Insight:* {ep.insight}")
         for bid in ep.new_belief_ids:

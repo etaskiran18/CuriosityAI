@@ -166,6 +166,7 @@ class Episode(BaseModel):
     answer: str = ""
     falsifier: str = ""  # what would show the answer wrong
     vague: bool = False  # the answer was too vague to be wrong, so confidence could not rise
+    hedged_answer: bool = False  # the answer was hedged ("may", "could"), so confidence could rise by 0.05 at most
     confidence: float = 0.0
     insight: str = ""
     new_belief_ids: list[str] = Field(default_factory=list)

@@ -52,6 +52,7 @@ ROWS = [
     ("concession_rate", "debates conceded"),
     ("skeptic_quoted_rate", "debates where the skeptic quoted a text"),
     ("vague_answers", "answers too vague to be wrong"),
+    ("hedged_answers", "answers hedged (may, could)"),
     ("mean_on_topic", "closeness to the topic"),
     ("questions_set_aside", "questions set aside (off topic)"),
     ("questions_held_back", "questions kept for a second look"),
