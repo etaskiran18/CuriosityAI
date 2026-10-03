@@ -178,4 +178,10 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
   wrapped over two lines are read correctly; letter-spaced words ("interactio n") are rejoined. Checked
   on seven arXiv space-physics PDFs.
 * `docs/ONE_TEST.md`: one command, what to send back, and what to look at.
+* **Found in a validation run with mistral 7B** (seven arXiv space-physics PDFs, one as a stand-in draft,
+  web on): a probability written into the claim ("..., with a probability of 0.75") is taken out of the
+  text; "the paper discusses the role of X" counts as hedged like "will discuss"; junk PDF author fields
+  ("iitm", "user") are dropped; a draft without an "Abstract" heading no longer shows the topic setup an
+  address instead of its abstract; and a `--judge-model` that is not installed stops the run at the
+  start instead of silently wasting it (nothing counts as evidence without the judge).
 
