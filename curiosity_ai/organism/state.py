@@ -28,6 +28,12 @@ class Evidence(BaseModel):
     quote: str
     source_title: str = ""
 
+    @property
+    def where(self) -> str:
+        """The text's name for a person to read ("[DOC:Unknown:NUMERICAL_SIMULATIONS_OF:chunk0:L7-L27]" is for the
+        program; the quote itself, searched for in the PDF, finds the page)."""
+        return self.source_title or self.citation
+
 
 class Visit(BaseModel):
     """One investigation of a question; the raw material of learning progress."""

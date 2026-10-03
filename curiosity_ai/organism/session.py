@@ -312,7 +312,7 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
     ]
     if grounded:
         lines += ["", "## New beliefs grounded in the texts", ""]
-        lines += [f"- **{bid}** {b.statement} - {b.evidence[0].citation}" for bid, b in grounded[:10]]
+        lines += [f'- **{bid}** {b.statement} - "{one_line(b.evidence[0].quote, 200)}" (*{b.evidence[0].where}*)' for bid, b in grounded[:10]]
     doubted = [(e.heartbeat, bid) for e in episodes for bid in e.doubted_belief_ids if bid in state.beliefs]
     if doubted:
         lines += ["", "## Beliefs it came to doubt", ""]

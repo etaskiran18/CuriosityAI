@@ -133,7 +133,7 @@ class Diary:
         for bid in ep.new_belief_ids:
             b = state.beliefs.get(bid)
             if b:
-                kind = "interpretation" if b.interpretive else "; ".join(e.citation for e in b.evidence)
+                kind = "interpretation" if b.interpretive else "quoted from " + "; ".join(dict.fromkeys(f"*{e.where}*" for e in b.evidence))
                 lines.append(f"- New belief **{bid}** ({b.confidence:.2f}, {kind}): {b.statement}")
         for bid in ep.reinforced_belief_ids:
             b = state.beliefs.get(bid)

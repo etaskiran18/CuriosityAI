@@ -84,6 +84,29 @@ def test_confidence_cannot_outrun_the_evidence(config):
     assert ep.confidence == pytest.approx(config.organism.evidence_ceiling_base + config.organism.evidence_ceiling_per_support)
 
 
+def test_quotes_name_their_text_for_a_person(config):
+    """The map, the diary and the report name the text a quote is from, not the program's key for it."""
+    from curiosity_ai.organism.research_map import render_research_map
+
+    learned = [{"belief": "Wonder is the feeling of a philosopher, and philosophy begins in it.", "source": "S1"}]
+    settle = {**_sure("Wonder is the feeling of a philosopher."), "learned": learned}
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=settle))
+    report = org.run_session(1)
+    ep = org.state.recent_episodes[-1]
+    q = org.state.questions["Q1"]
+    assert q.support and org.state.beliefs[ep.new_belief_ids[0]].evidence
+    title = q.support[0].source_title
+    assert title and "[" not in title
+    documents = {
+        "map": render_research_map(org),
+        "diary": (org.home / "diary.md").read_text(encoding="utf-8"),
+        "report": (report.directory / "report.md").read_text(encoding="utf-8"),
+    }
+    for name, text in documents.items():
+        assert f"*{title}*" in text, name
+        assert q.support[0].citation not in text, name
+
+
 def test_an_answer_no_quote_supports_stays_at_the_base(config):
     org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=_sure("Certain now.")))
     ep = org.heartbeat()
