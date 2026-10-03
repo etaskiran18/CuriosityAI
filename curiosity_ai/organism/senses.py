@@ -24,6 +24,41 @@ if TYPE_CHECKING:
 _GUTENBERG_START = re.compile(r"^\*\*\* ?START OF (THE|THIS) PROJECT GUTENBERG.*$", re.MULTILINE)
 _GUTENBERG_END = re.compile(r"^\*\*\* ?END OF (THE|THIS) PROJECT GUTENBERG.*$", re.MULTILINE)
 
+# A reference list is full of the topic's words, so a word search finds it often, but it states nothing: a
+# 7B judge accepted "Nunn, D. and Smith, A.J.: 1996, 'Numerical simulation of whistler-triggered VLF
+# emissions ...'" as a confirmation. Reference lists, and the numbers of figures and tables, are not read.
+_REFERENCES_HEADING = re.compile(
+    r"^[ \t]*(?:\d+\.?[ \t]*)?(?:references?|referents|bibliography|literature cited|references and notes|works cited"
+    r"|cited literature)[ \t]*:?[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_YEAR = re.compile(r"\b(?:1[6-9]|20)\d{2}[a-z]?\b")
+_INITIAL = re.compile(r"\b[A-Z]\.")
+_NOT_INITIALS = re.compile(r"\b(?:A\.D\.|B\.C\.(?:E\.)?|C\.E\.|U\.S\.(?:A\.)?|U\.K\.|Ph\.D\.|M\.D\.)")
+_NUMBER = re.compile(r"[-+\u2212\u2013(\[]?[\d.,:;\u00d7%/=<>()\[\]\u2212\u2013-]+")
+_NUMBER_LINE = re.compile(r"^(?=[^\n]*\d)[^A-Za-z\n]*(?:(?<![A-Za-z])[A-Za-z]{1,2}(?![A-Za-z])[^A-Za-z\n]*)*$", re.MULTILINE)
+
+
+def without_number_lines(text: str) -> str:
+    """Drop lines that are only numbers, such as a figure's axes ("-3", "0.5", "x 1000 km") or a page number."""
+    return re.sub(r"\n{3,}", "\n\n", _NUMBER_LINE.sub("", text)).strip()
+
+
+def not_prose(text: str, *, after_references: bool = False) -> bool:
+    """A stretch of a reference list ("Nunn, D. and Smith, A.J.: 1996, ...") or a table of numbers."""
+    words = text.split()
+    if len(words) < 20:
+        return False
+    per_100 = 100 / len(words)
+    years = len(_YEAR.findall(text)) * per_100
+    initials = len(_INITIAL.findall(_NOT_INITIALS.sub(" ", text))) * per_100
+    if sum(bool(_NUMBER.fullmatch(w)) for w in words) >= 0.5 * len(words):
+        return True
+    if (initials >= 8 and years >= 1.5) or (initials >= 5 and years >= 2):
+        return True
+    # after a "References" heading, also the styles without initials ("Schaul, Tom, Saxton, David, ... 2016")
+    return after_references and (years >= 3 or initials >= 5)
+
 
 @dataclass
 class Observation:
@@ -155,14 +190,23 @@ class LexicalLibrary:
         own = kind == "inbox" and str(meta.get("own", "")).strip().lower() in ("yes", "true")
         if own:
             note = "the person's own work: their claims, not evidence"
+        # The last "References" heading after the first third of the text starts its reference list.
+        headings = [m.start() for m in _REFERENCES_HEADING.finditer(body) if m.start() > 0.3 * len(body)]
         added = 0
         for idx, (start, end, text) in enumerate(self.chunker.chunk(body)):
+            heading = next((h for h in headings if start < h < end), None)
+            if heading is not None:
+                end = heading  # keep the end of the text, not the start of its reference list
+                text = body[start:end].strip()
             if start > 0 and body[start - 1].isalnum():
                 # Overlapping chunks can begin mid-word; start at the next whole word.
                 text = text.split(None, 1)[1] if len(text.split(None, 1)) > 1 else text
+            text = without_number_lines(text)
             terms = tokens(text)
             if len(terms) < 8:
                 continue
+            if idx > 0 and not_prose(text, after_references=any(h <= start for h in headings)):
+                continue  # (the first chunk is a title, its authors and the abstract)
             line_start, line_end = line_range_for_char_span(body, start, end)
             chunk = _Chunk(
                 citation=_citation(prefix, author, title, idx, line_start + line_offset, line_end + line_offset),
