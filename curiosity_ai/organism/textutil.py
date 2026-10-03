@@ -174,7 +174,11 @@ _HEDGE_RE = re.compile(
     r"it is possible|some (?:texts|authors|thinkers|sources)|"
     # "Carpenter will discuss X" says what a text is about, not what it claims: it can never be contradicted.
     r"will (?:discuss|explore|provide|mention|address|examine|describe|talk about|cover|present|review|"
-    r"investigate|highlight|emphasi[sz]e|consider|touch on|deal with|focus on|elaborate on|analy[sz]e))\b",
+    r"investigate|highlight|emphasi[sz]e|consider|touch on|deal with|focus on|elaborate on|analy[sz]e)"
+    # "The paper discusses the role of whistlers" names a topic in the present tense: still no claim.
+    r"|(?:discuss|explor|examin|address|review|investigat|consider|highlight|stud(?:y|ies|ied))\w*\s+(?:the\s+)?"
+    r"(?:role|impact|influence|relationship|effect|importance|significance|mechanisms?|nature)\s+of"
+    r"|provid\w*\s+(?:new\s+|valuable\s+|key\s+)?insights?\s+into)\b",
     re.IGNORECASE,
 )
 
