@@ -134,6 +134,7 @@ def test_a_researcher_heartbeat_speaks_of_papers(research_config, papers):
     ep = org.heartbeat()
     assert ep is not None and "the papers and notes in your library" in llm.prompts["ANTICIPATE"]
     assert "Main topic: Battery aging" in llm.prompts["JUDGE"]  # new questions are rated against the topic
+    assert "In its field: How lithium-ion cells lose capacity" in llm.prompts["JUDGE"]  # and against what it means
 
 
 def test_a_failed_topic_setup_still_gives_a_question(config):
@@ -293,7 +294,7 @@ def test_a_schema_hint_copied_back_is_not_a_meaning(research_config):
         def json_chat(self, system, user, schema_hint, **kwargs):
             reply = super().json_chat(system, user, schema_hint, **kwargs)
             if "[TOPIC]" in system:
-                reply["meaning"] = "one sentence: what the topic means in its field, in plain words"
+                reply["meaning"] = "one sentence in the terms its papers use, not the topic's own words: which process or object it studies"
             return reply
 
     org = CuriosityOrganism(research_config, llm=Echo())

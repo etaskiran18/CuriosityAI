@@ -317,6 +317,12 @@ class CuriosityOrganism:
             tc = self.oc.topic
             topic.title, topic.description, topic.keywords = tc.title, tc.description, list(tc.keywords)
 
+    def _topic_for_judge(self) -> str:
+        """The main topic as the judge sees it: its title, the person's words and, if known, its meaning in the field."""
+        topic = self.state.topic
+        text = f"{topic.title}. {topic.description}".strip(". ")
+        return f"{text}. In its field: {topic.meaning}" if topic.meaning else text
+
     def _topic_words(self) -> frozenset[str]:
         topic = self.state.topic
         seeds = [q.text for q in self.state.questions.values() if q.trigger in ("seed", "human")]
@@ -976,7 +982,7 @@ class CuriosityOrganism:
             verdicts, _ = self.judge.judge([pair for _, pair, _ in belief_pairs], errors=errors)
         if self.judge is not None and proposals:
             _, ratings = self.judge.judge(
-                [], questions=[nq.text for nq in proposals], topic=f"{st.topic.title}. {st.topic.description}".strip(". "), errors=errors
+                [], questions=[nq.text for nq in proposals], topic=self._topic_for_judge(), errors=errors
             )
 
         # Beliefs: grounded ones carry a quote the judge accepted; the rest are interpretation.
@@ -1173,7 +1179,7 @@ class CuriosityOrganism:
         """The judge decides whether a text a search found is worth keeping for this question."""
         if self.judge is None:
             return None
-        topic = f"{self.state.topic.title}. {self.state.topic.description}".strip(". ")
+        topic = self._topic_for_judge()
 
         def approve(title: str, beginning: str) -> bool:
             rating = self.judge.text_relevance(title, beginning, question=q.text, topic=topic, errors=errors)

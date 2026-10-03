@@ -91,9 +91,11 @@ The run also found problems, fixed before release:
   inner magnetosphere?", it took "illuminate" for light and asked about light emission and "faint
   emissions" for a whole run. A new research life now reads how the person's article and papers begin
   and writes one sentence on what the topic means in its field; that sentence goes into every prompt,
-  the diary and the research map. With the same topic and two space-physics papers, its first questions
-  went from "the intensity of illumination" to how lightning-generated whistler waves propagate and
-  are detected.
+  the judge's view of the topic, the diary and the research map. The wording of the request matters
+  with a small model: asked plainly, a 3B model repeated "illuminate" in 3 of 3 tries and its first
+  questions stayed on "illumination"; asked for the meaning "in the terms its papers use rather than the
+  topic's own words", it did so in 0 of 3, and its questions were about how lightning-generated whistler
+  and VLF waves propagate and are detected.
 * **Quotes from PDFs**: a sentence copied cleanly from text with layout noise inside (citation marks, a
   word from the next column) counts; 11 of its 12 claimed quotes had been rejected.
 * **A busy source is named** in the diary (Semantic Scholar, arXiv or Wikipedia), and a busy site rests

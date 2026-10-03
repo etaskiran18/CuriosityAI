@@ -102,8 +102,9 @@ question, answer exactly: not in my notes.
 """,
     "TOPIC": """
 [TOPIC] A person has given you a research topic. Prepare to study it. First say what the topic means in its
-field: a topic's words can be the field's own terms, so read them as its researchers do, not in their everyday
-sense; the beginnings of the person's papers, when given, show how the field speaks. Then give a short title, the
+field, in the terms its papers use rather than the topic's own words: a topic's words can be the field's own
+terms, so read them as its researchers do, not in their everyday sense; the beginnings of the person's papers,
+when given, show how the field speaks. Then give a short title, the
 key terms that papers on this topic use, and first questions that are specific, answerable from scientific
 papers, and different from each other.
 """,
@@ -232,7 +233,7 @@ GRADE_SCHEMA = """
 
 TOPIC_SCHEMA = """
 {
-  "meaning": "one sentence: what the topic means in its field, in plain words",
+  "meaning": "one sentence in the terms its papers use, not the topic's own words: which process or object it studies",
   "title": "a short title for the topic, at most 8 words",
   "keywords": ["key term", "another key term"],
   "questions": ["a specific first question", "another question"]
