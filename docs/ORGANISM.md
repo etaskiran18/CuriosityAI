@@ -141,7 +141,13 @@ support the claim at all. v9 adds the last four points below.
   influences another ("the plasmapause significantly influences the propagation of whistlers") cannot
   fail either: whatever a paper reports agrees with it. Half of a 7B model's predictions were of this
   kind, and in 51 heartbeats the texts contradicted none. Such predictions are asked again with the
-  hedged ones (one retry: say which way, how much, under which condition, or by which mechanism).
+  hedged ones (one retry: say which way, how much, under which condition, or by which mechanism). The
+  retry is kept only if it has more predictions that could fail *and* are expected to hold (p >= 0.5):
+  told to write claims a text could contradict, mistral simply denied its own ("X is not crucial",
+  p = 0.05), which leaves nothing it believes to test.
+* **A contradiction surprises only if it overturns what was expected** (p >= 0.5). Being "contradicted"
+  in a prediction it gave 5% is no surprising fact: it licenses neither doubting a quoted belief nor a
+  "contradiction" question.
 * **Only a test that could have failed counts** (Popper's severe test): a confirmation makes an answer
   surer only if its prediction was risky, that is neither hedged nor a mere claim of influence.
 * **Answers must be specific enough to be wrong.** An answer leaning on "complex", "multifaceted",

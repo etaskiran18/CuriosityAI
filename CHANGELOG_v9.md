@@ -184,4 +184,10 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
   ("iitm", "user") are dropped; a draft without an "Abstract" heading no longer shows the topic setup an
   address instead of its abstract; and a `--judge-model` that is not installed stops the run at the
   start instead of silently wasting it (nothing counts as evidence without the judge).
+* **Also from the validation run**: mistral turned its predictions into denials when asked for claims a
+  text could contradict, so a retry is now kept only if it tests more of what it expects (p >= 0.5), and a
+  contradiction counts as a surprise only if the prediction was expected; a fetched paper must be rated
+  "useful" (mistral rated a solar-wind paper "loosely related" while writing "not in the Earth's
+  magnetosphere"), while encyclopedia articles and books stay background; and the map lists as
+  hypotheses only answers that a quote supports.
 
