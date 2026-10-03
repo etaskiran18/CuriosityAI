@@ -386,13 +386,13 @@ def test_the_judge_can_refuse_a_text_that_only_shares_words(tmp_path: Path):
     lib = make_librarian(tmp_path, FakeInternet())
     seen = []
 
-    def approve(title, beginning):
-        seen.append(title)
+    def approve(title, beginning, kind):
+        seen.append((title, kind))
         return False
 
     assert lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap curiosity"]), reason="r", context=CONTEXT, approve=approve) == []
     # The word check runs first; the judge is asked only about texts that pass it (the arXiv paper did not).
-    assert seen == ["Wikipedia: Curiosity", "The psychology of curiosity: A review and reinterpretation"]
+    assert seen == [("Wikipedia: Curiosity", "encyclopedia"), ("The psychology of curiosity: A review and reinterpretation", "paper")]
     assert sum("the judge found not useful" in r for r in lib.rejected) == 2
 
 
@@ -408,14 +408,16 @@ def test_the_organism_lets_its_judge_approve_what_it_fetches(config):
 
 
 def test_background_texts_pass_and_unrelated_ones_do_not(config):
-    """A small judge rates encyclopedia background 1 (loosely related): kept. Only 0 (unrelated) is refused."""
+    """Encyclopedia background rated 1 (loosely related) is kept; a paper must be rated 2 (useful); 0 is refused."""
     config.organism.librarian.hunger_informativeness = 0.9
-    for rating, kept in ((1, True), (0, False)):
+    for rating, kinds in ((3, {"encyclopedia", "paper"}), (1, {"encyclopedia"}), (0, set())):
         config.organism.home = config.organism.home + f"-{rating}"
         org = CuriosityOrganism(config, llm=ScriptedLLM(text_rating=rating))
         http = Http("test-agent", min_interval=0, sleep=lambda s: None, session=FakeSession(FakeInternet()))
         org.librarian = Librarian(config.organism.librarian, org.library_dir, http=http)
-        assert bool(org.heartbeat().acquisitions) == kept
+        ep = org.heartbeat()
+        got = {"encyclopedia" if a.startswith("Wikipedia") else "paper" for a in ep.acquisitions}
+        assert got <= kinds and (bool(got) == bool(kinds)), (rating, ep.acquisitions)
 
 
 @pytest.mark.parametrize("title, elsewhere", [

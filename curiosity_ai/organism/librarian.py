@@ -494,7 +494,7 @@ class Librarian:
         self.busy: list[str] = []  # could not look: the source was busy or unreachable
         self.rejected: list[str] = []  # found, but off the topic, so not kept
         self.failed_searches: list[str] = []  # searches that found nothing in this run (not repeated)
-        self.approve: Callable[[str, str], bool] | None = None
+        self.approve: Callable[[str, str, str], bool] | None = None
 
     def history(self) -> list[dict[str, Any]]:
         return read_jsonl(self.log_path)
@@ -522,7 +522,7 @@ class Librarian:
         heartbeat: int | None = None,
         context: str = "",
         until_year: int | None = None,
-        approve: Callable[[str, str], bool] | None = None,
+        approve: Callable[[str, str, str], bool] | None = None,
     ) -> list[Acquisition]:
         """Look up what the organism wished to read. Returns what was actually added.
 
@@ -588,8 +588,9 @@ class Librarian:
         shared = (token_set(context) - token_set(query)) & token_set(text)
         return len(shared) >= self.config.min_relevance_words
 
-    def _approved(self, title: str, beginning: str) -> bool:
-        return self.approve is None or self.approve(title, beginning)
+    def _approved(self, title: str, beginning: str, kind: str) -> bool:
+        """The judge's word on a found text; ``kind`` is "encyclopedia", "book" or "paper"."""
+        return self.approve is None or self.approve(title, beginning, kind)
 
     @staticmethod
     def _elsewhere(title: str, context: str) -> str:
@@ -615,7 +616,7 @@ class Librarian:
             return f"{_OFF_TOPIC}: found '{title}'"
         if self._elsewhere(title, context):
             return f"{_OFF_TOPIC}: found '{title}', which is about {self._elsewhere(title, context)}"
-        if not self._approved(f"Wikipedia: {title}", text[:1500]):
+        if not self._approved(f"Wikipedia: {title}", text[:1500], "encyclopedia"):
             return f"{_OFF_TOPIC}: found '{title}', which the judge found not useful"
         front = {
             "title": title, "author": "Wikipedia", "cite_as": "WIKI", "source_url": url,
@@ -634,7 +635,7 @@ class Librarian:
                 return _OWNED
             if candidates is None and not self._relevant(query, context, f"{entry.title} {entry.subjects}"):
                 return f"{_OFF_TOPIC}: found '{entry.title}' by {entry.author}"
-            if candidates is None and not self._approved(f"{entry.title}, by {entry.author}", entry.subjects):
+            if candidates is None and not self._approved(f"{entry.title}, by {entry.author}", entry.subjects, "book"):
                 return f"{_OFF_TOPIC}: found '{entry.title}' by {entry.author}, which the judge found not useful"
             fetched = self.gutenberg.fetch_text(entry)
             if fetched is None:
@@ -683,7 +684,7 @@ class Librarian:
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}'"
         if self._elsewhere(title, context):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which is about {self._elsewhere(title, context)}"
-        if not self._approved(title, paper.get("abstract", "")):
+        if not self._approved(title, paper.get("abstract", ""), "paper"):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which the judge found not useful"
         authors = ", ".join(a.get("name", "") for a in (paper.get("authors") or [])[:3]) or "Unknown"
         year = str(paper.get("year") or "")

@@ -1280,17 +1280,20 @@ class CuriosityOrganism:
         if got:
             self.senses.notice_new_material()
 
-    def _text_approver(self, q: Question, errors: list[str]) -> Callable[[str, str], bool] | None:
+    def _text_approver(self, q: Question, errors: list[str]) -> Callable[[str, str, str], bool] | None:
         """The judge decides whether a text a search found is worth keeping for this question."""
         if self.judge is None:
             return None
         topic = self._topic_for_judge()
 
-        def approve(title: str, beginning: str) -> bool:
+        def approve(title: str, beginning: str, kind: str = "paper") -> bool:
             rating = self.judge.text_relevance(title, beginning, question=q.text, topic=topic, errors=errors)
-            # Refuse only what it calls unrelated (0 of 3): a small judge calls background articles such as
-            # "Plasmasphere" only loosely related (1), and refusing those left the library empty.
-            return rating is None or rating >= 0.3
+            if rating is None:
+                return True  # no answer from the judge: the word check alone decides
+            # An encyclopedia article or a classic book is background: "loosely related" (1 of 3) is enough, since a
+            # small judge calls even "Plasmasphere" only that. A paper must be "useful" (2 of 3): mistral rated a
+            # solar-wind paper 1 while writing "about whistler waves in the solar wind, not in the Earth's magnetosphere".
+            return rating >= (0.6 if kind == "paper" else 0.3)
 
         return approve
 
