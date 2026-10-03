@@ -160,3 +160,22 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
 * Still open: 44 confirmations and no contradiction in 51 heartbeats (predictions general enough that
   texts can only agree or stay silent), and 11 of its 12 grounded beliefs quote the person's own article.
 
+## Before the one test: the open items
+
+* **Predictions a text can contradict.** In the fourth run the texts confirmed 44 predictions and
+  contradicted none: half of them only said that one thing influences another. Such predictions are
+  now asked again together with hedged ones (one retry), and a confirmation counts as support only if
+  its prediction could have failed (Popper's severe test).
+* **The person's own draft is a claim to test, not evidence.** At most one passage of it per heartbeat;
+  a prediction it matches is recorded as "your draft says so"; it grounds no belief and supports no
+  answer. The research map sets each claim of the draft against what the other texts said.
+* **Guesses do not take over.** Reflection builds the theory on the answers the texts support and calls
+  a guess a guess; questions about undiscovered or lesser-known things are not asked; a bare "REVISE"
+  takes no stance.
+* **The library refuses texts about another world, star or device** (Venus, magnetars, tokamaks) unless
+  the topic names it.
+* **PDF titles and words**: journal banners, Cyrillic metadata titles, titles in capitals and titles
+  wrapped over two lines are read correctly; letter-spaced words ("interactio n") are rejoined. Checked
+  on seven arXiv space-physics PDFs.
+* `docs/ONE_TEST.md`: one command, what to send back, and what to look at.
+

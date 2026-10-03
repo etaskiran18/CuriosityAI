@@ -273,8 +273,8 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"({_counts(m['questions_born_by_trigger'])}); settled {m['questions_settled']}, dormant {m['questions_dormant']}, "
         f"judged unanswerable {m['questions_unanswerable']}.",
         f"- **Beliefs:** new {m['beliefs_new']} ({m['beliefs_grounded']} grounded in verified quotes, "
-        f"{m['beliefs_interpretive']} interpretations); earlier beliefs doubted {m['beliefs_doubted']} "
-        f"({m.get('paper_doubts', 0)} more doubts refused: no text contradicted those beliefs); reinforced {m['beliefs_reinforced']}.",
+        f"{m['beliefs_interpretive']} interpretations); earlier beliefs doubted {m['beliefs_doubted']}, "
+        f"doubts refused because no text contradicted the belief {m.get('paper_doubts', 0)}; reinforced {m['beliefs_reinforced']}.",
         f"- **Honesty:** {m['quotes_verified']} quotes verified in the sources, {m['quotes_rejected']} invented quotes caught "
         f"(fabrication rate {m['fabrication_rate']:.0%}).",
         f"- **Surprise:** mean {m['mean_surprise']:.2f} (first half {m['surprise_first_half']:.2f}, second half "

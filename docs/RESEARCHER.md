@@ -5,6 +5,8 @@ It reads your papers, asks its own questions about them, predicts what the liter
 surprised, argues with itself, and keeps a map of what it has found. It does not answer one question
 and stop: it lives with your topic, session after session.
 
+For a single test of everything, see [ONE_TEST.md](ONE_TEST.md).
+
 ## Start
 
 ```bash
@@ -40,13 +42,21 @@ If you are writing an article on the topic, share it so the organism knows which
 python live.py --topic "How does lightning illuminate the inner magnetosphere?" --papers ~/my_project/paper/article --feed-file ~/my_project/paper/article/main.pdf --title "My article (draft)" --minutes 60 --web
 ```
 
-Your article then counts as something a person shared (cited as `INBOX`), not as one of the papers
-(cited as `DOC`), and it is not read twice. A new life reads its beginning first, to learn what the
-topic means in your field. The organism asks its own questions about it, and its
-claims are checked against the literature like any other claim: its predictions about what the papers
-say can be contradicted, and the research map shows where the literature is silent (possible gaps) or
-disagrees (surprises). That is useful for an introduction or a discussion section, but every quote it
-gives must still be checked by you.
+Your article is then **a set of claims to test, not evidence**. A new life reads its beginning first, to
+learn what the topic means in your field, and the organism asks its own questions about it. But:
+
+* at most one passage of your draft is read in each heartbeat; the other passages come from the papers;
+* when a prediction matches your draft, the diary says "your draft says so", and it does not count as a
+  confirmation: your draft cannot ground a belief or support an answer (in an earlier version 11 of 12
+  "grounded" beliefs simply quoted the person's own article back to them);
+* the research map has a section **"Your draft's claims it met, and what the other texts say"**: for
+  each claim of yours it met, the quotes from other texts that say something similar or the opposite,
+  or "no other text it read says this yet".
+
+That shows where the literature backs your draft and where it is silent, which is useful for an
+introduction or a discussion section. Every quote must still be checked by you. In researcher mode,
+everything you share (`--feed-file`, `--feed`) is treated as your own work in this way; set
+`organism.research.own_work_is_evidence: true` in `config.yaml` to treat it as evidence instead.
 
 ## Talk to it
 
@@ -82,7 +92,9 @@ gap" means *its* library is silent, not that nobody has studied the question; it
 
 The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 
-* predictions must be able to fail, with a probability; hedged guesses ("may", "might") are refused;
+* predictions must be able to fail, with a probability; hedged guesses ("may", "might") and claims that
+  only say one thing influences another ("X significantly influences Y") are asked again, since no text
+  could contradict them; a confirmation makes an answer surer only if its prediction could have failed;
 * a blind judge decides what each quote really supports; a sample is saved for you to check;
 * answers must say what would prove them wrong; vague answers ("complex", "many factors") earn no confidence,
   and hedged ones ("may play a role", "could potentially") earn very little, as do answers that would be
@@ -93,8 +105,12 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
 * texts it fetches must not be unrelated to the question, as the judge reads their title and beginning
   (background articles are kept);
+* texts about another world, star or device than your topic (Venus, a magnetar, a tokamak) are refused;
 * the debate may cite only the passages it read; references from memory are marked unverified;
-* at most one new question per heartbeat: depth before breadth.
+* at most one new question per heartbeat: depth before breadth; questions about things nobody has
+  identified ("undiscovered instabilities", "lesser-known structures") are not asked, since no paper
+  can answer them;
+* its theory of your topic is built from the answers the texts support; a guess must be called a guess.
 
 ## Your own exam
 

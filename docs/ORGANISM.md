@@ -38,7 +38,7 @@ where each one comes from.
 |---|---|---|
 | choose | Every open question gets a *pull* from the curiosity drive. Questions far from the main topic pull less. A softmax picks one, so the organism mostly follows the strongest pull and sometimes wanders. | Loewenstein, Oudeyer, Berlyne (below) |
 | predict | Before reading, the organism writes its current answer, its confidence, and 2-4 **predictions**: who will say what, and the probability that the texts support it. "May", "might" and "could" are not allowed (a hedged guess can never be wrong); it is asked once more if it hedges. | Peirce: real doubt needs a real expectation; Popper: a claim must be able to fail |
-| observe | BM25 search over `data/philosophy_corpus` (or, in researcher mode, your papers) and anything a human shared. | Dewey: curiosity seeks "material for thought" |
+| observe | BM25 search over `data/philosophy_corpus` (or, in researcher mode, your papers) and anything a human shared. In researcher mode what the person shares is their own work: at most one passage per heartbeat, read as their claims and never as evidence. | Dewey: curiosity seeks "material for thought" |
 | compare | For each prediction: confirmed, contradicted, or not addressed. A claim counts only if its quote is **found in the passage**. | Peirce's "irritation of doubt" |
 | judge | A separate **blind judge** sees only each claim and its quote (never the organism's reasoning or verdict) and decides: supports, contradicts, or neither. Only what the judge accepts counts as evidence. | A witness is not the judge of its own case |
 | argue | Wonder proposes an explanation that could be wrong; Skeptic attacks it **with evidence** (a quote, or a named thinker who would disagree); Wonder answers with one word first: DEFEND, REVISE or CONCEDE. | Socratic elenchus; Mill: "He who knows only his own side of the case, knows little of that" |
@@ -137,7 +137,13 @@ support the claim at all. v9 adds the last four points below.
   "grounded" only with a quote it accepted. It can be a different, larger model (`--judge-model`), and a
   sample of its decisions is written to `judge_check.csv` so a person can check it.
 * **Predictions must be able to fail**: no "may" or "might"; doubt goes into a probability, and the
-  Brier score rewards being right *and* knowing how sure to be.
+  Brier score rewards being right *and* knowing how sure to be. A prediction that only says one thing
+  influences another ("the plasmapause significantly influences the propagation of whistlers") cannot
+  fail either: whatever a paper reports agrees with it. Half of a 7B model's predictions were of this
+  kind, and in 51 heartbeats the texts contradicted none. Such predictions are asked again with the
+  hedged ones (one retry: say which way, how much, under which condition, or by which mechanism).
+* **Only a test that could have failed counts** (Popper's severe test): a confirmation makes an answer
+  surer only if its prediction was risky, that is neither hedged nor a mere claim of influence.
 * **Answers must be specific enough to be wrong.** An answer leaning on "complex", "multifaceted",
   "various factors" earns no confidence, and one that cannot say what would refute it gains at most 0.05.
   So does a hedged answer ("the plasmapause may play a role", "could potentially affect"): like a hedged
@@ -198,7 +204,9 @@ evidence: a small model doubts its earlier guesses on nothing but newer guesses)
 the skeptic to have quoted a text, and a question born from a gap
 waits until its parent has had a second look (`min_visits_before_children`, 2): a gap is a gap only if it
 is still there when you look again, often with newly fetched texts. Proposals without a reason yet are
-noted in the diary ("kept for a second look").
+noted in the diary ("kept for a second look"). A question about things nobody has identified
+("undiscovered plasma instabilities", "lesser-known structures", "yet-to-be-identified ...") is not asked
+at all: no paper can answer it.
 
 It then diagnoses its state and nudges its temperament in small, bounded steps:
 
@@ -210,7 +218,12 @@ It then diagnoses its state and nudges its temperament in small, bounded steps:
 | Aporetic numbness | high surprise, little progress | get bored sooner; prefer anchored questions |
 
 The language model also writes a short reflection and updates the organism's **own theory of
-curiosity**. That theory is shown to the Wonder voice at every heartbeat. What the organism comes to
+curiosity** (in researcher mode: of its topic). It is shown, separately, the answers the texts support
+(with a quote), the beliefs that rest on quotes, and its guesses, and is asked to build the theory on
+the supported part and to call a guess a guess; a theory that only says "not yet understood" does not
+replace the old one, and a focus question about undiscovered things is not adopted. (A 7B model had
+built a whole hour's theory around one unsupported guess, "lightning polarization".) That theory is
+shown to the Wonder voice at every heartbeat. What the organism comes to
 believe about curiosity therefore shapes how it wonders, and its measured experience of inquiry
 shapes how it allocates curiosity.
 
@@ -268,7 +281,10 @@ A curious reader whose books fall silent goes to the library. With `--web` (or
      the topic, beyond the words searched for ("Curiosity" the Mars rover shares only its name), and the
      judge, reading its title and beginning, does not rate it unrelated ("Magnetosphere of Saturn"
      shares many words with a question about Earth's inner magnetosphere). Background such as
-     "Plasmasphere", which a small judge calls only loosely related, is kept.
+     "Plasmasphere", which a small judge calls only loosely related, is kept. A title about another
+     world, an astrophysical object or a laboratory device (Venus, Saturn, a magnetar, a tokamak, "in
+     the solar wind") is refused unless the question or the topic names it: a small judge had let in
+     papers on whistlers at Venus, in tokamaks and in magnetar magnetospheres.
    * **Busy is not "nothing found"**: when a source cannot be asked (rate limit, no network), the diary
      and the report say so, instead of claiming that the literature is silent.
 4. **Provenance.** Every acquired text goes into `memory/organism/library/` with front matter giving
