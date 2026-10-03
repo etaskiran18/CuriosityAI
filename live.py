@@ -488,7 +488,7 @@ def main() -> int:
         config.organism.judge.enabled = False
     if args.topic:
         if not args.home:
-            slug = re.sub(r"[^a-z0-9]+", "-", args.topic.lower()).strip("-")[:40] or "topic"
+            slug = re.sub(r"[^a-z0-9]+", "-", args.topic.lower()).strip("-")[:40].strip("-") or "topic"
             config.organism.home = f"memory/research/{slug}"
         config.organism.research.topic = args.topic
         config.organism.research.until_year = args.until_year
