@@ -58,7 +58,14 @@ pip install -r requirements.txt
 python -m pytest                   # should end with "passed"
 ```
 
-In every new terminal, first run `cd ~/CuriosityAI && source .venv/bin/activate`.
+> **Every time you open a new Ubuntu terminal, first run:**
+>
+> ```bash
+> cd ~/CuriosityAI && source .venv/bin/activate
+> ```
+>
+> The prompt then starts with `(.venv)`. Without it, `python` is "not found" and `pip install` stops
+> with "externally-managed-environment".
 
 ## 6. Ollama inside WSL
 
@@ -142,11 +149,19 @@ python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/my-
 It lives in `memory/research/<topic>/`. Its main result is `research_map.md` there. See
 [RESEARCHER.md](RESEARCHER.md).
 
+* Write folders with `/`, never `\`, and keep the whole command on one line.
+* Your papers are on Windows? `C:\Users\you\papers` is `/mnt/c/Users/you/papers` in WSL;
+  `wslpath 'C:\Users\you\papers'` prints the WSL form for you.
+* Working on your own article? Share it, so it knows which paper is yours:
+  `--feed-file ~/papers/my-topic/main.pdf --title "My article (draft)"`.
+
 ## If something goes wrong
 
 | Problem | What to do |
 |---|---|
 | `ensurepip is not available` when creating the venv | `sudo apt install -y python3-venv` (on some versions `python3.12-venv`) |
+| `error: externally-managed-environment` from `pip`, or `Command 'python' not found` | the virtual environment is not active: `cd ~/CuriosityAI && source .venv/bin/activate` (if `.venv` does not exist yet, create it as in step 5) |
+| `There is no folder at ...` | write the folder with `/` (bash removes `\`), on one line; check it with `ls <folder>`; a Windows folder is under `/mnt/c/...` (see `wslpath`) |
 | `Ollama: not reachable` in `--check` | run `ollama serve` in a second terminal |
 | `Model ... is not installed` | `ollama pull mistral:7b-instruct` |
 | `GPU use: ... CPU only` | check `nvidia-smi` (step 3), then restart: `wsl --shutdown` in PowerShell |

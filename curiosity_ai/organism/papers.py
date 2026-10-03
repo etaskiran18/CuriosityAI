@@ -12,6 +12,7 @@ guessed at. Run them through OCR first if you need them.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,11 +27,13 @@ class IngestReport:
     added: list[str] = field(default_factory=list)
     already: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)  # (file, why)
+    skipped: list[str] = field(default_factory=list)  # left out on purpose (e.g. your own article, shared separately)
 
 
-def ingest_papers(source: Path, dest: Path, *, max_pages: int = 300) -> IngestReport:
+def ingest_papers(source: Path, dest: Path, *, max_pages: int = 300, skip: set[Path] | None = None) -> IngestReport:
     """Convert every paper in ``source`` (and its subfolders) that is not in ``dest`` yet."""
     source, dest = Path(source).expanduser(), Path(dest)
+    skip = {Path(p).resolve() for p in skip or set()}
     report = IngestReport()
     if not source.is_dir():
         report.failed.append((str(source), "no such folder"))
@@ -38,6 +41,9 @@ def ingest_papers(source: Path, dest: Path, *, max_pages: int = 300) -> IngestRe
     dest.mkdir(parents=True, exist_ok=True)
     for path in sorted(source.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in EXTENSIONS or path.name.startswith("."):
+            continue
+        if path.resolve() in skip:
+            report.skipped.append(path.name)
             continue
         data = path.read_bytes()
         digest = hashlib.sha1(data).hexdigest()[:10]
@@ -75,6 +81,8 @@ def pdf_text(path: Path, *, max_pages: int = 300) -> tuple[dict[str, str], str]:
         from pypdf import PdfReader
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise RuntimeError("reading PDFs needs pypdf: pip install pypdf") from exc
+    # Real PDFs are full of small format oddities; pypdf reads past them, so its warnings are only noise.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     reader = PdfReader(str(path))
     pages: list[str] = []
     for number, page in enumerate(reader.pages[:max_pages], start=1):

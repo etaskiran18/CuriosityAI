@@ -38,7 +38,7 @@ from curiosity_ai.organism.body import SystemSensors
 from curiosity_ai.organism.librarian import Librarian, user_agent
 from curiosity_ai.organism.drive import DIAGNOSES
 from curiosity_ai.organism.exam import run_exam
-from curiosity_ai.organism.papers import ingest_papers
+from curiosity_ai.organism.papers import ingest_papers, pdf_text
 from curiosity_ai.organism.research_map import write_research_map
 from curiosity_ai.organism.state import Episode
 from curiosity_ai.organism.textutil import one_line
@@ -383,17 +383,54 @@ def print_exam(result) -> None:
     console.print(f"Saved: {escape(str(result.path))}")
 
 
-def ingest(config: AppConfig, folder: str) -> int:
+def local_path(text: str) -> Path:
+    """A path typed the Windows way also works in WSL: C:\\Users\\me\\papers -> /mnt/c/Users/me/papers.
+
+    (Typed without quotes, bash removes the backslashes before Python sees them,
+    so a missing folder gets a hint instead.)
+    """
+    text = text.strip().strip('"').strip("'")
+    if os.name != "nt":
+        drive = re.match(r"^([A-Za-z]):[\\/](.*)$", text)
+        if drive:
+            text = f"/mnt/{drive.group(1).lower()}/" + drive.group(2).replace("\\", "/")
+        elif "\\" in text and not Path(text).expanduser().exists():
+            text = text.replace("\\", "/")
+    return Path(text).expanduser()
+
+
+PATH_HINT = (
+    "In WSL, write folders with / (not \\): bash removes backslashes. Put the whole command on one line.\n"
+    "A folder on Windows such as C:\\Users\\you\\papers is /mnt/c/Users/you/papers in WSL; "
+    "the command wslpath 'C:\\Users\\you\\papers' converts it. Check a folder with: ls <folder>"
+)
+
+
+def ingest(config: AppConfig, folder: str, skip: set[Path] | None = None) -> int:
     """Researcher mode: convert the person's papers into the organism's library."""
+    source = local_path(folder)
+    if not source.is_dir():
+        console.print(f"[red]There is no folder at {escape(str(source))}.[/red]")
+        console.print(escape(PATH_HINT))
+        return 1
     target = Path(config.organism.home) / "papers"
-    console.print(f"[dim]Reading your papers from {escape(folder)} ...[/dim]")
-    report = ingest_papers(Path(folder), target, max_pages=config.organism.research.max_pdf_pages)
+    console.print(f"[dim]Reading your papers from {escape(str(source))} ...[/dim]")
+    report = ingest_papers(source, target, max_pages=config.organism.research.max_pdf_pages, skip=skip)
     console.print(
-        f"Papers: {len(report.added)} added, {len(report.already)} already in its library, {len(report.failed)} could not be read."
+        f"Papers: {len(report.added)} added, {len(report.already)} already in its library, {len(report.failed)} could not be read"
+        + (f", {len(report.skipped)} left out (shared as yours with --feed-file)" if report.skipped else "") + "."
     )
     for name, why in report.failed[:10]:
         console.print(f"[yellow]  {escape(name)}: {escape(why)}[/yellow]")
     return 0 if report.added or report.already else 1
+
+
+def read_shared_file(path: Path) -> tuple[str, str]:
+    """(title, text) of a file a person shares: a PDF (for example your own article) or a text file."""
+    if path.suffix.lower() == ".pdf":
+        meta, text = pdf_text(path)
+        return meta.get("title") or path.stem, text
+    return path.stem, path.read_text(encoding="utf-8", errors="ignore")
 
 
 def main() -> int:
@@ -410,7 +447,7 @@ def main() -> int:
     parser.add_argument("--no-rest", action="store_true", help="Turn off rests and the temperature/battery guards (for short experiments only)")
     parser.add_argument("--ask", action="append", default=[], help="Give the organism a question (repeatable)")
     parser.add_argument("--feed", default=None, help="Share an observation as text")
-    parser.add_argument("--feed-file", default=None, help="Share an observation from a text/markdown file")
+    parser.add_argument("--feed-file", default=None, help="Share a file with it: text, markdown or PDF (for example your own article)")
     parser.add_argument("--title", default=None, help="Title for --feed/--feed-file")
     parser.add_argument("--add-book", action="append", default=[], metavar="QUERY", help='Download a public-domain book into the corpus, e.g. "Hobbes Leviathan" (repeatable)')
     parser.add_argument("--status", action="store_true", help="Show the organism's mind and library, then exit")
@@ -470,7 +507,13 @@ def main() -> int:
         console.print(f"Previous life archived to {escape(str(archived))}." if archived else "There was no previous life to archive.")
 
     home = Path(config.organism.home)
-    if args.papers and ingest(config, args.papers):
+    feed_path = local_path(args.feed_file) if args.feed_file else None
+    if feed_path is not None and not feed_path.is_file():
+        console.print(f"[red]There is no file at {escape(str(feed_path))}.[/red]")
+        console.print(escape(PATH_HINT))
+        return 1
+    # A paper you share as yours (--feed-file) is not read a second time as one of the papers.
+    if args.papers and ingest(config, args.papers, skip={feed_path.resolve()} if feed_path else None):
         console.print("[red]No papers could be read; check the folder.[/red]")
         return 1
     if args.topic and not (home / "mind.json").exists():
@@ -495,14 +538,17 @@ def main() -> int:
     for question in args.ask:
         q = organism.ask(question)
         console.print(f"Asked: [bold]{q.id}[/bold] {escape(q.text)}")
-    if args.feed_file and not Path(args.feed_file).is_file():
-        console.print(f"[red]No such file: {escape(args.feed_file)}[/red]")
-        return 1
-    if args.feed or args.feed_file:
-        text = args.feed or Path(args.feed_file).read_text(encoding="utf-8", errors="ignore")
-        title = args.title or (Path(args.feed_file).stem if args.feed_file else None)
+    if args.feed or feed_path:
+        if feed_path is not None:
+            title, text = read_shared_file(feed_path)
+            title = args.title or title
+        else:
+            title, text = args.title, args.feed
+        if not text.strip():
+            console.print(f"[red]No text found in {escape(str(feed_path))} (a scanned PDF needs OCR first).[/red]")
+            return 1
         path = organism.feed(text, title)
-        console.print(f"Shared an observation: {escape(str(path))} (it will be noticed at the next heartbeat)")
+        console.print(f"Shared with it: {escape(str(path))} (it will be noticed at the next heartbeat)")
 
     if args.status:
         print_status(organism)

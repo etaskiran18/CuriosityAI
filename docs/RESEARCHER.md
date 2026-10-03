@@ -23,6 +23,25 @@ python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/bat
 
 Run the same command again later to continue the same life. Add papers at any time with `--papers`.
 
+**Folders in WSL.** Write folders with `/` (bash removes `\`), and keep the command on one line. A
+folder on Windows such as `C:\Users\you\papers` is `/mnt/c/Users/you/papers`;
+`wslpath 'C:\Users\you\papers'` prints it for you. A path in quotes typed the Windows way also works.
+
+## Your own article
+
+If you are writing an article on the topic, share it so the organism knows which paper is yours:
+
+```bash
+python live.py --topic "How does lightning illuminate the inner magnetosphere?" --papers ~/my_project/paper/article --feed-file ~/my_project/paper/article/main.pdf --title "My article (draft)" --minutes 60 --web
+```
+
+Your article then counts as something a person shared (cited as `INBOX`), not as one of the papers
+(cited as `DOC`), and it is not read twice. The organism asks its own questions about it, and its
+claims are checked against the literature like any other claim: its predictions about what the papers
+say can be contradicted, and the research map shows where the literature is silent (possible gaps) or
+disagrees (surprises). That is useful for an introduction or a discussion section, but every quote it
+gives must still be checked by you.
+
 ## Talk to it
 
 ```bash
