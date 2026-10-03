@@ -225,6 +225,16 @@ class LexicalLibrary:
         return chosen
 
 
+    def own_beginnings(self) -> list[str]:
+        """The opening of each work the person shared as their own (its real title is in there, not in the
+        inbox title "My article (draft)"), so the librarian does not fetch it again as somebody's paper."""
+        self._ensure_built()
+        seen: dict[str, str] = {}
+        for chunk in self._chunks:
+            if chunk.own and chunk.source_key not in seen:
+                seen[chunk.source_key] = chunk.text[:1200]
+        return list(seen.values())
+
     def titles(self) -> list[str]:
         """'Author, Title' of every indexed text, for telling the organism what it owns."""
         self._ensure_built()

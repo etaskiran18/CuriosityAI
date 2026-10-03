@@ -145,7 +145,7 @@ ANTICIPATE_SCHEMA = """
   "answer": "your best current answer, 1-2 sentences",
   "confidence": "number from 0.0 (no idea) to 1.0 (certain)",
   "expectations": [
-    {"author": "one author's family name, e.g. Dewey", "claim": "what they hold or found, stated plainly", "probability": "0.05 to 0.95"}
+    {"author": "one author's family name from your library, or: the texts", "claim": "what they hold or found, stated plainly", "probability": "0.05 to 0.95"}
   ]
 }
 """.strip()

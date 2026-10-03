@@ -692,8 +692,14 @@ class CuriosityOrganism:
                 anticipation = again
         return anticipation
 
+    def _known_names(self) -> frozenset[str]:
+        """Every name-like word in the library's 'Author, Title' list: who could really be quoted."""
+        titles = getattr(self.senses.library, "titles", lambda: [])()
+        return frozenset(w.lower() for t in titles for w in re.findall(r"\b[A-Z][\w'’-]+", t))  # "Tu", "Li" count too
+
     def _parse_anticipation(self, data: dict[str, Any]) -> Anticipation:
         predictions: list[Prediction] = []
+        known = self._known_names()
         for item in _as_list(data.get("expectations")):
             if isinstance(item, dict):
                 claim = _as_str(item.get("claim") or item.get("expectation") or item.get("text") or "")
@@ -718,6 +724,11 @@ class CuriosityOrganism:
             if len(claim.split()) < 4 or claim.lower().startswith(("what they will say", "what they hold or found", "a specific claim")):
                 continue  # too short to be checked, or the schema hint echoed back
             if author.lower().startswith(("who will say", "one author")):
+                author = ""
+            # "Smith's research shows that ..." about a Smith who is not in the library: a name from nowhere (one
+            # model even took "Dewey" from the template). No text here can confirm who said it, only the claim.
+            claim = _without_unknown_author(claim, known)
+            if author and not _is_known_name(author, known):
                 author = ""
             probability = self.oc.default_probability if probability is None else min(0.95, max(0.05, probability))
             hedged = is_hedged(claim)
@@ -1259,6 +1270,7 @@ class CuriosityOrganism:
         if q.last_library_visit is not None and self.state.heartbeat - q.last_library_visit < cfg.cooldown_heartbeats:
             return
         q.last_library_visit = self.state.heartbeat
+        lib.own_beginnings = getattr(self.senses.library, "own_beginnings", lambda: [])()
         wish = self._reading_wish(q, episode, errors)
         topic = self.state.topic
         try:
@@ -1852,6 +1864,30 @@ _STATED_PROBABILITY = re.compile(
     r"(\d{1,3}\s*%|0?\.\d+|1(?:\.0+)?)\)?\s*\.?\s*$",
     re.IGNORECASE,
 )
+
+
+_AUTHOR_OPENING = re.compile(
+    r"^\s*(?:[Aa]ccording\s+to\s+(?P<to>[A-Z][\w'’-]+)(?:\s+et\s+al\.?)?(?:\s*\(\d{4}\))?,\s*"
+    r"|(?P<who>[A-Z][\w'’-]+)(?:\s+et\s+al\.?)?(?:\s*\(\d{4}\))?"
+    r"(?:(?:'s|’s)\s+(?:research|study|studies|work|paper|analysis|results|findings|team|group|model|data|observations)\s+"
+    r"(?:found|finds|shows?|showed|reveals?|revealed|suggests?|suggested|demonstrates?|demonstrated|reports?|reported|indicates?|indicated)"
+    r"|\s+(?:found|finds|argues?|argued|reports?|reported|states?|stated|concludes?|concluded|notes?|noted|observes?|observed"
+    r"|proposes?|proposed|claims?|claimed))\s+that\s+)",
+)
+
+
+def _is_known_name(name: str, known: frozenset[str]) -> bool:
+    words = [w.lower() for w in re.findall(r"[A-Za-z][\w'’-]+", name) if w.lower() not in ("the", "texts", "papers", "sources")]
+    return bool(words) and words[-1] in known
+
+
+def _without_unknown_author(claim: str, known: frozenset[str]) -> str:
+    """'Smith's research shows that X' -> 'X' when no Smith is in the library."""
+    match = _AUTHOR_OPENING.match(claim)
+    if not match or _is_known_name(match.group("to") or match.group("who") or "", known):
+        return claim
+    rest = claim[match.end():]
+    return rest[:1].upper() + rest[1:] if rest else claim
 
 
 def _believed_risky(predictions: list["Prediction"]) -> int:

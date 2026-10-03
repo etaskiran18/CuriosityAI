@@ -233,7 +233,7 @@ _STRAWMAN_RE = re.compile(
     r"|\bnot\s+(?:play|have)\s+(?:a|any)\s+(?:significant\s+)?(?:role|influence|effect|impact)\b"
     r"|\b(?:do|does|did)\s+not\s+(?:interact|affect|influence|matter|contribute)\b"
     r"|\b(?:only|sole|single|exclusive)\s+(?:\w+\s+)?(?:factor|cause|mechanism|driver|determinant|agent)s?\b|\bsolely\b|\balone\b"
-    r"|\bregardless of\b|\bunder (?:any|all)\b|\bin all cases\b",
+    r"|\bregardless of\b|\bunder (?:any|all)\b|\bin all cases\b|\bindependent(?:ly)?\s+of\b",
     re.IGNORECASE,
 )
 

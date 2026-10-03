@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -303,6 +304,10 @@ def test_will_discuss_is_a_hedge():
 
 
 def test_a_long_author_list_becomes_one_name(config):
+    (Path(config.corpus.path) / "tu.md").write_text(
+        "---\ntitle: Lightning currents and the lower ionosphere\nauthor: J.-N. Tu\n---\n\n" + "Lightning heats the lower ionosphere. " * 20,
+        encoding="utf-8",
+    )
     org = CuriosityOrganism(config, llm=ScriptedLLM())
     parsed = org._parse_anticipation({"expectations": [{
         "author": "J.-N. Tu, J. T. Emmert, R. A. Marshall, Chih-Te Hsu and Roderick A. Heelis",
@@ -561,4 +566,18 @@ def test_a_retry_that_only_denies_its_own_predictions_is_not_kept(config):
     assert [p["claim"] for p in ep.predictions] == [b["claim"] for b in believed]  # ...but the denials were not kept
     retry_prompt = [prompt for step, prompt in llm.history if step == "ANTICIPATE"][1]
     assert "Do not turn them into denials" in retry_prompt
+
+
+def test_an_author_the_library_does_not_have_is_dropped_from_a_prediction(config):
+    """mistral wrote "Smith's research shows that ..." and even "Dewey found that ..." in a space-physics library."""
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    parsed = org._parse_anticipation({"expectations": [
+        {"author": "Smith", "claim": "Smith's research shows that changes in electron density alter the speed of whistlers", "probability": 0.8},
+        {"author": "Plato", "claim": "Plato holds that philosophy begins in wonder", "probability": 0.7},
+        {"author": "Johnson", "claim": "According to Johnson et al. (2019), whistlers start near the equator", "probability": 0.6},
+    ]})
+    smith, plato, johnson = parsed.predictions
+    assert smith.author == "" and smith.claim == "Changes in electron density alter the speed of whistlers"
+    assert plato.author == "Plato" and plato.claim.startswith("Plato holds")  # Plato is in the library
+    assert johnson.author == "" and johnson.claim == "Whistlers start near the equator"
 

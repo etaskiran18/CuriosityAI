@@ -474,6 +474,7 @@ class Librarian:
         self.config = config
         self.dir = Path(library_dir)
         self.owned_dirs = [Path(d) for d in owned_dirs or []]  # e.g. the shared corpus: never fetch what it has
+        self.own_beginnings: list[str] = []  # openings of the person's own work: never fetch it as somebody's paper
         self.http = http or Http(
             user_agent(config.contact),
             timeout=config.timeout_seconds,
@@ -592,6 +593,11 @@ class Librarian:
         """The judge's word on a found text; ``kind`` is "encyclopedia", "book" or "paper"."""
         return self.approve is None or self.approve(title, beginning, kind)
 
+    def _is_own_work(self, title: str) -> bool:
+        """Is this the person's own work (its title stands in the opening of something they shared)?"""
+        words = token_set(title)
+        return len(words) >= 4 and any(len(words & token_set(text)) >= 0.8 * len(words) for text in self.own_beginnings)
+
     @staticmethod
     def _elsewhere(title: str, context: str) -> str:
         """The other world, star or device a title is about, if the question and topic never mention it.
@@ -615,7 +621,8 @@ class Librarian:
         if not self._relevant(topic, context, f"{title} {text[:3000]}"):
             return f"{_OFF_TOPIC}: found '{title}'"
         if self._elsewhere(title, context):
-            return f"{_OFF_TOPIC}: found '{title}', which is about {self._elsewhere(title, context)}"
+            place = re.sub(r"^in\s+", "", self._elsewhere(title, context))
+            return f"{_OFF_TOPIC}: found '{title}', which is about {place}"
         if not self._approved(f"Wikipedia: {title}", text[:1500], "encyclopedia"):
             return f"{_OFF_TOPIC}: found '{title}', which the judge found not useful"
         front = {
@@ -680,10 +687,13 @@ class Librarian:
         if self._known(url):
             return _OWNED
         title = paper.get("title", "Untitled")
+        if self._is_own_work(title):
+            return _OWNED  # the person's own article, found online: it stays their claim, not a paper's evidence
         if not self._relevant(query, context, f"{title} {paper.get('abstract', '')}"):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}'"
         if self._elsewhere(title, context):
-            return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which is about {self._elsewhere(title, context)}"
+            place = re.sub(r"^in\s+", "", self._elsewhere(title, context))
+            return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which is about {place}"
         if not self._approved(title, paper.get("abstract", ""), "paper"):
             return f"{_OFF_TOPIC}: found '{one_line_title(title)}', which the judge found not useful"
         authors = ", ".join(a.get("name", "") for a in (paper.get("authors") or [])[:3]) or "Unknown"

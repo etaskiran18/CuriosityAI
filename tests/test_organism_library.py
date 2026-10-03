@@ -439,3 +439,17 @@ def test_a_text_about_another_world_star_or_device_is_off_topic(title, elsewhere
 def test_a_topic_about_that_place_keeps_it():
     assert Librarian._elsewhere("Lightning on Venus", "How common is lightning on Venus?") == ""
 
+
+def test_the_persons_own_work_found_online_is_not_fetched_as_a_paper(tmp_path: Path):
+    lib = make_librarian(tmp_path, FakeInternet())
+    lib.own_beginnings = ["[page 1]\nA reconstruction method of electron density distribution in the equatorial region of "
+                          "magnetosphere\nV. V. Shastun, O. V. Agapitov"]
+    assert lib._is_own_work("A reconstruction method of electron density distribution in the equatorial region of magnetosphere")
+    assert not lib._is_own_work("The source regions of whistlers")
+
+
+def test_a_refusal_names_the_place():
+    context = "How does lightning illuminate the inner magnetosphere? whistlers"
+    place = Librarian._elsewhere("Electron properties and the whistler heat-flux instability in the solar wind", context)
+    assert place == "in the solar wind"
+
