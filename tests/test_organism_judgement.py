@@ -511,3 +511,14 @@ def test_confirming_a_prediction_that_could_not_fail_is_no_support(config):
 def test_naming_a_topic_in_the_present_tense_is_no_claim(claim, hedged):
     assert is_hedged(claim) is hedged
 
+
+def test_a_probability_written_into_the_claim_is_taken_out(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    ant = org._parse_anticipation({"expectations": [
+        {"author": "Golden", "claim": "Most whistlers reach the equator inside the plasmasphere, with a probability of 0.75"},
+        {"author": "Golden", "claim": "The density drops by a factor of 5 at the plasmapause (probability: 60%)", "probability": 0.4},
+    ]})
+    first, second = ant.predictions
+    assert first.claim == "Most whistlers reach the equator inside the plasmasphere" and first.probability == pytest.approx(0.75)
+    assert second.claim == "The density drops by a factor of 5 at the plasmapause" and second.probability == pytest.approx(0.4)
+

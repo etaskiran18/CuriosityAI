@@ -705,6 +705,12 @@ class CuriosityOrganism:
             else:
                 claim, author, probability = _as_str(item), "", None
             claim = re.sub(r"^\s*(E\d+[:.)]|\d+[.)]|[-*])\s*", "", claim).strip()
+            # "..., with a probability of 0.75" written into the claim: the number belongs in the probability
+            stated = _STATED_PROBABILITY.search(claim)
+            if stated:
+                claim = claim[: stated.start()].rstrip(" ,;(")
+                if probability is None:
+                    probability = _confidence(stated.group(1))
             if len(claim.split()) < 4 or claim.lower().startswith(("what they will say", "what they hold or found", "a specific claim")):
                 continue  # too short to be checked, or the schema hint echoed back
             if author.lower().startswith(("who will say", "one author")):
@@ -1825,6 +1831,13 @@ def _trigger(value: Any) -> str:
         if s.startswith(prefix):
             return trigger
     return "gap"
+
+
+_STATED_PROBABILITY = re.compile(
+    r"[,;(]?\s*\(?(?:with|at)?\s*(?:a|an)?\s*(?:probability|likelihood|chance|confidence)\s*(?:of|:|=)?\s*"
+    r"(\d{1,3}\s*%|0?\.\d+|1(?:\.0+)?)\)?\s*\.?\s*$",
+    re.IGNORECASE,
+)
 
 
 def _statement(answer: str) -> str:
