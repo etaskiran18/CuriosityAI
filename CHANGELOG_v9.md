@@ -196,4 +196,14 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
   from arXiv); "would be wrong if ... independently of ..." counts as a strawman; a source label such as
   "[S1]" becomes the text's short title (cutting it out left beliefs such as "The model in considers ...",
   and answers in the map kept a bare "[S1]" that meant nothing outside its heartbeat).
+* **Also from the final validation run**: the judge accepted a line of a reference list ("Nunn, D. and
+  Smith, A.J.: 1996, ...") as a confirmation. Reference lists are full of the topic's words, so the word
+  search found them often (40% of one review paper was its reference list). They are no longer read: a
+  passage ends at the "References" heading, and stretches dense with authors' initials and years are
+  left out (an appendix after the list stays); lines that hold only numbers, such as a figure's axes, are
+  dropped from passages. On 49 texts this left out 1.1% of the passages, all reference lists or
+  bibliographies. Quotes in the map, the diary and the report now name their text instead of the
+  program's key ("[DOC:Unknown:NUMERICAL_SIMULATIONS_OF_THE_EFF:chunk0:L7-L27]"). And when Ollama fails for
+  a moment (it answered one call with an error after the process running the model was killed), the call
+  is tried again twice, 5 and 10 seconds later.
 

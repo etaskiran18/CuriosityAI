@@ -23,6 +23,7 @@ python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/bat
 * `--papers`: a folder with your papers: PDF, `.txt` or `.md`. They are converted to text once, into
   `<home>/papers/`, with page markers such as `[page 3]` so every quote can be found again.
   Scanned PDFs (pictures of pages) contain no text; they are listed so you can run OCR on them first.
+  Reference lists are not read (a reference is not evidence), nor lines that hold only numbers.
 * `--web` (optional): when your papers say little about a question, it looks for more: paper abstracts
   from Semantic Scholar and arXiv, and encyclopedia articles. Get a free Semantic Scholar API key
   (semanticscholar.org/product/api) and put it in `SEMANTIC_SCHOLAR_API_KEY`; without one that source

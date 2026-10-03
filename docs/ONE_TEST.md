@@ -71,3 +71,5 @@ From `memory/research/lightning/`:
 * Its theory is built from what the texts support; guesses must be called guesses.
 * Texts about Venus, magnetars, tokamaks and the like are refused for an Earth topic.
 * Paper titles are read correctly from more PDFs.
+* Reference lists are not read: a reference ("Nunn, D. and Smith, A.J.: 1996, ...") is not evidence.
+* Quotes name the text they come from; a label such as "[S1]" no longer appears in the map.
