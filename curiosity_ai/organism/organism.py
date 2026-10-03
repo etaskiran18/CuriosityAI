@@ -1006,6 +1006,9 @@ class CuriosityOrganism:
             if c.status == "contradicted" and 1 <= c.expectation <= len(probabilities) and probabilities[c.expectation - 1] >= 0.5
         )
         stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
+        settlement.answer = _name_sources(settlement.answer, by_label, keep_citations=True)
+        settlement.falsifier = _name_sources(settlement.falsifier, by_label, keep_citations=True)
+        settlement.insight = _name_sources(settlement.insight, by_label, keep_citations=True)
         answer = settlement.answer or anticipation.answer or q.answer
         # "Further research is needed to uncover X" says that the question is open, not what the answer is.
         vague = vagueness(answer) >= oc.vague_threshold or is_non_answer(answer)
@@ -1015,7 +1018,7 @@ class CuriosityOrganism:
         # The blind judge reads, in one call, the new beliefs against their quotes and the answer against
         # the quotes that might support it. (It rates proposed questions in a call of its own: small models
         # mix the two tasks up.) A pair that shares almost no words never reaches it.
-        learned = settlement.learned[:3]
+        learned = [Learned(_name_sources(item.belief, by_label, keep_citations=False), item.source) for item in settlement.learned[:3]]
         belief_pairs: list[tuple[int, Pair, Observation]] = []
         for i, item in enumerate(learned):
             if is_hedged(item.belief):
@@ -1897,6 +1900,45 @@ def _believed_risky(predictions: list["Prediction"]) -> int:
     return sum(1 for p in predictions if p.risky and p.probability >= 0.5)
 
 
+_ONE_LABEL = r"[\[(]\s*S\d+(?:\s*(?:,|;|and)\s*S\d+)*\s*[\])]"
+_SOURCE_LABELS = re.compile(rf"\s*{_ONE_LABEL}(?:\s*(?:,|;|and)?\s*{_ONE_LABEL})*")  # "[S1]", "(S1, S2)", "[S1] and [S2]"
+_BEFORE_A_NAME = re.compile(
+    r"\b(?:in|by|from|of|to|see|per|like|as|and|or|with|on|than|for|at|into|about|between|under|via|both|the|each|either|neither)\s*$",
+    re.IGNORECASE,
+)
+_ENDS_A_CLAUSE = re.compile(r"\s*(?:$|[.,;:!?)]|(?:and|but|while|whereas|which|so|because|although|though|when|where|since)\b)", re.IGNORECASE)
+
+
+def _name_sources(text: str, by_label: dict[str, Observation], *, keep_citations: bool) -> str:
+    """'[S1]' means something only inside its heartbeat; the map and later heartbeats need the text's name.
+
+    'The model in [S1] considers' becomes 'The model in "Numerical modelling of the..." considers' (removing
+    the label left "The model in considers"). A citation that ends a clause ('... electron density (S1).') is
+    dropped, or kept as the text's name in brackets.
+    """
+    def name(label: str) -> str:
+        obs = by_label.get(label)
+        if obs is None:
+            return ""
+        if obs.own:
+            return "your draft"
+        words = obs.title.split()
+        return "\u201c" + " ".join(words[:6]) + ("\u2026" if len(words) > 6 else "") + "\u201d"
+
+    def swap(match: re.Match[str]) -> str:
+        names = list(dict.fromkeys(n for n in (name(label) for label in re.findall(r"S\d+", match.group())) if n))
+        before = text[:match.start()]
+        if not before.strip() or _BEFORE_A_NAME.search(before):  # "[S1] shows", "the model in [S1]": a noun
+            return (" " if before.strip() else "") + (" and ".join(names) or "one of the texts")
+        if not names or (_ENDS_A_CLAUSE.match(text, match.end()) and not keep_citations):
+            return ""  # a citation: the evidence keeps its source
+        return f" ({'; '.join(names)})"
+
+    named = _SOURCE_LABELS.sub(swap, text)
+    named = re.sub(r"\s+([.,;:!?])", r"\1", re.sub(r"[ \t]{2,}", " ", named)).strip()
+    return named[:1].upper() + named[1:] if named and not text[:1].islower() else named
+
+
 def _statement(answer: str) -> str:
     """An answer that is a question ("Can we infer thresholds ...?") answers nothing: the old answer stays."""
     return "" if answer.rstrip().endswith("?") else answer
@@ -1911,8 +1953,8 @@ def _parse_settlement(data: dict[str, Any]) -> Settlement:
         else:
             text = _as_str(item)
             source = _label(re.search(r"\[S\d+\]|\(S\d+\)", text).group()) if re.search(r"\[S\d+\]|\(S\d+\)", text) else None
-        text = re.sub(r"\s*[\[(]S\d+[\])]\s*", " ", text).strip()
-        if len(text.split()) >= 4:
+        # The labels stay: only the heartbeat knows which text "[S1]" is (see _name_sources).
+        if len(_SOURCE_LABELS.sub(" ", text).split()) >= 4:
             learned.append(Learned(one_line(text, 400), source))
     contradicts: list[str] = []
     for item in _as_list(data.get("contradicts")):

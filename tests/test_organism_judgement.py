@@ -8,7 +8,7 @@ import pytest
 
 from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.judge import Judge, Pair, rating_of, verdict_of
-from curiosity_ai.organism.organism import Check, Comparison, _quotes_a_passage, _stance
+from curiosity_ai.organism.organism import Check, Comparison, _name_sources, _quotes_a_passage, _stance
 from curiosity_ai.organism.senses import Observation
 from curiosity_ai.organism.state import Evidence
 from curiosity_ai.organism.textutil import is_hedged, is_influence_only, is_non_answer, is_strawman_falsifier, lexically_related, token_set, vagueness
@@ -474,6 +474,43 @@ def test_a_belief_its_quote_does_not_mention_stays_an_interpretation(config):
     ep = org.heartbeat()
     assert org.state.beliefs[ep.new_belief_ids[0]].interpretive
     assert not any(j["kind"] == "belief" for j in ep.judgments)  # the pair never reached the judge
+
+
+
+_SOURCES = {
+    "S1": Observation("S1", "c1", "Numerical modelling of subionospheric VLF propagation with perturbations", "A. Author", "t", "papers"),
+    "S2": Observation("S2", "c2", "Whistler (radio)", "Wikipedia", "t", "web"),
+    "S3": Observation("S3", "c3", "My article (draft)", "Human observer", "t", "inbox", own=True),
+}
+
+
+@pytest.mark.parametrize("text, belief, answer", [
+    ("The model in [S1] considers lightning.",
+     "The model in \u201cNumerical modelling of subionospheric VLF propagation\u2026\u201d considers lightning.", None),
+    ("Dispersion depends on electron density (S2).",
+     "Dispersion depends on electron density.", "Dispersion depends on electron density (\u201cWhistler (radio)\u201d)."),
+    ("Both [S1] and [S2] show that density falls.",
+     "Both \u201cNumerical modelling of subionospheric VLF propagation\u2026\u201d and \u201cWhistler (radio)\u201d show that density falls.", None),
+    ("Density falls [S1] and [S2].", "Density falls.", None),
+    ("[S3] says density falls.", "Your draft says density falls.", None),
+    ("The model in [S9] considers lightning.", "The model in one of the texts considers lightning.", None),
+])
+def test_a_source_label_becomes_the_texts_name(text, belief, answer):
+    """'[S1]' means nothing outside its heartbeat; cutting it out left "The model in considers"."""
+    assert _name_sources(text, _SOURCES, keep_citations=False) == belief
+    if answer is not None:
+        assert _name_sources(text, _SOURCES, keep_citations=True) == answer
+
+
+def test_beliefs_and_answers_name_their_texts(config):
+    learned = [{"belief": "The account in [S1] holds that wonder starts philosophy.", "source": "S1"}]
+    answer = "Wonder is the felt perplexity that starts inquiry, as argued in [S1]."
+    org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(learned=learned, answer=answer)))
+    ep = org.heartbeat()
+    title = re.sub(r"^\[S1\] (?:[^,]*, )?", "", ep.sources[0]).split()[0]
+    statement = org.state.beliefs[ep.new_belief_ids[0]].statement
+    assert "[S1]" not in statement and f"in \u201c{title}" in statement
+    assert "[S1]" not in ep.answer and f"as argued in \u201c{title}" in ep.answer
 
 
 # -- predictions a text could contradict ----------------------------------------------------
