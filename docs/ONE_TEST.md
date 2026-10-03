@@ -22,6 +22,9 @@ ollama pull qwen2.5:14b
 
 If it does not fit, skip this step: mistral then judges its own work, as before.
 
+Optional: with a free Semantic Scholar API key (semanticscholar.org/product/api) it finds more papers.
+Set it once in the same terminal before the run: `export SEMANTIC_SCHOLAR_API_KEY=your_key`.
+
 ## 3. Run
 
 One line (add `--judge-model qwen2.5:14b` at the end if you did step 2):
