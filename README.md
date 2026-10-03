@@ -18,8 +18,10 @@ study **your own research topic** (see [CHANGELOG_v9.md](CHANGELOG_v9.md)):
   answer too vague to be wrong earns no confidence.
 - An **outside exam** before and after a session measures what it learned by reading.
 - **Researcher mode**: `--topic "..." --papers <folder>` turns it into a curious assistant that reads
-  your PDFs and keeps a **research map** of open questions, hypotheses, surprises and gaps. See
-  **[docs/RESEARCHER.md](docs/RESEARCHER.md)**.
+  your PDFs and keeps a **research map** of open questions, hypotheses, surprises and gaps; your own
+  draft is a set of claims it tests against the papers, never evidence for itself. See
+  **[docs/RESEARCHER.md](docs/RESEARCHER.md)**, and **[docs/ONE_TEST.md](docs/ONE_TEST.md)** for a
+  one-hour test of everything.
 
 What v8 brought:
 
