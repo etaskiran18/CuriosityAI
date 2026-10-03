@@ -297,3 +297,11 @@ def test_citations_from_memory_are_flagged_in_the_debate(config):
     assert ep.dialogue[-1].get("citations") == "unverified"
     assert "cites papers it was not shown" in (org.home / "diary.md").read_text(encoding="utf-8")
     assert "never cite a paper you were not shown" in org.llm.prompts["SKEPTIC"].lower()
+
+
+def test_a_quoted_passage_that_cites_others_is_not_a_citation_from_memory():
+    from curiosity_ai.organism.organism import _cites_from_memory
+
+    assert not _cites_from_memory('[S4] says: "the whistler intensity was measured by Inan et al., 1990 on board the satellite"')
+    assert _cites_from_memory('As shown by Inan et al. (1990), whistlers precipitate electrons.')
+    assert _cites_from_memory('Nakamura et al., "Whistler observations of the inner magnetosphere", show it.')

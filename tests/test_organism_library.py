@@ -405,3 +405,14 @@ def test_the_organism_lets_its_judge_approve_what_it_fetches(config):
     ep = org.heartbeat()
     assert ep.acquisitions == [] and ep.library_rejected
     assert any("A text found in a search" in prompt for step, prompt in llm.history if step == "JUDGE")
+
+
+def test_background_texts_pass_and_unrelated_ones_do_not(config):
+    """A small judge rates encyclopedia background 1 (loosely related): kept. Only 0 (unrelated) is refused."""
+    config.organism.librarian.hunger_informativeness = 0.9
+    for rating, kept in ((1, True), (0, False)):
+        config.organism.home = config.organism.home + f"-{rating}"
+        org = CuriosityOrganism(config, llm=ScriptedLLM(text_rating=rating))
+        http = Http("test-agent", min_interval=0, sleep=lambda s: None, session=FakeSession(FakeInternet()))
+        org.librarian = Librarian(config.organism.librarian, org.library_dir, http=http)
+        assert bool(org.heartbeat().acquisitions) == kept

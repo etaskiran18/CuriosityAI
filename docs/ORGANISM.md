@@ -145,7 +145,8 @@ support the claim at all. v9 adds the last four points below.
   after a revision it can rise by at most 0.10.
 * **No citations from memory**: Wonder and Skeptic may refer only to the passages they were shown. A
   turn that cites other papers ("T. Nakamura et al., JGR vol. 82") is marked unverified in the diary
-  and counted in the report: such references may be invented.
+  and counted in the report: such references may be invented. A reference inside a quoted passage
+  (the passage itself cites "Inan et al., 1990") is not counted.
 * **Only confirmed predictions make an answer surer.** Without a confirmation the judge accepted,
   confidence rises by at most 0.05, however surprising the side findings were.
 * **Confidence moves in bounded steps**: at most 0.25 per heartbeat, at most +0.05 without evidence,
@@ -241,8 +242,9 @@ A curious reader whose books fall silent goes to the library. With `--web` (or
      API key in `SEMANTIC_SCHOLAR_API_KEY`; arXiv needs no key (one request every three seconds).
    * **Relevance check**: a found text is kept only if it shares at least two words with the question and
      the topic, beyond the words searched for ("Curiosity" the Mars rover shares only its name), and the
-     judge, reading its title and beginning, finds it useful for the question ("Magnetosphere of Saturn"
-     shares many words with a question about Earth's inner magnetosphere).
+     judge, reading its title and beginning, does not rate it unrelated ("Magnetosphere of Saturn"
+     shares many words with a question about Earth's inner magnetosphere). Background such as
+     "Plasmasphere", which a small judge calls only loosely related, is kept.
    * **Busy is not "nothing found"**: when a source cannot be asked (rate limit, no network), the diary
      and the report say so, instead of claiming that the literature is silent.
 4. **Provenance.** Every acquired text goes into `memory/organism/library/` with front matter giving

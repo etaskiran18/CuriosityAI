@@ -76,8 +76,11 @@ The run also found problems, fixed before release:
 * **"Carpenter will discuss X" counts as hedged**: it says what a text is about, not what it claims, and
   can never be contradicted. It is asked again as a claim.
 * **References from memory** in the debate ("T. Nakamura et al., JGR vol. 82, 1977") are marked
-  unverified; the voices are told to cite only the passages they read.
-* **The judge approves fetched texts** (it would have refused "Magnetosphere of Saturn"): one short extra call per text a search finds.
+  unverified; the voices are told to cite only the passages they read. A reference inside a quoted
+  passage is not counted.
+* **The judge checks fetched texts** and refuses those it rates unrelated ("Magnetosphere of Saturn"):
+  one short extra call per text a search finds. A first threshold, "useful" (2 of 3), refused even
+  "Plasmasphere" and left the library empty, so background (1 of 3) is kept.
 * **Paper titles** no longer come from journal headers ("SCIENCE ADVANCES | RESEARCH ARTICLE").
 * **Quotes from PDFs**: a sentence copied cleanly from text with layout noise inside (citation marks, a
   word from the next column) counts; 11 of its 12 claimed quotes had been rejected.

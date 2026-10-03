@@ -80,7 +80,8 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 * a blind judge decides what each quote really supports; a sample is saved for you to check;
 * answers must say what would prove them wrong; vague answers ("complex", "many factors") earn no confidence;
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
-* texts it fetches must be useful for the question, as the judge reads their title and beginning;
+* texts it fetches must not be unrelated to the question, as the judge reads their title and beginning
+  (background articles are kept);
 * the debate may cite only the passages it read; references from memory are marked unverified;
 * at most one new question per heartbeat: depth before breadth.
 

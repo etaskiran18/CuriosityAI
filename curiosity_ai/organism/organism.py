@@ -1136,7 +1136,9 @@ class CuriosityOrganism:
 
         def approve(title: str, beginning: str) -> bool:
             rating = self.judge.text_relevance(title, beginning, question=q.text, topic=topic, errors=errors)
-            return rating is None or rating >= 0.6  # "useful" (2 of 3) or better; no answer: the word check decides
+            # Refuse only what it calls unrelated (0 of 3): a small judge calls background articles such as
+            # "Plasmasphere" only loosely related (1), and refusing those left the library empty.
+            return rating is None or rating >= 0.3
 
         return approve
 
@@ -1768,8 +1770,14 @@ _MEMORY_CITATION = re.compile(
     r"\bet al\.?,?\s*(?:\(?\d{4}|[\"\u201c])|\b(?:vol|no)\.\s*\d|\bpp\.\s*\d|\bJournal of [A-Z]|\bdoi:|^\s*\[\d+\]\s+[A-Z]",
     re.MULTILINE,
 )
+_QUOTED = re.compile(r'"[^"]{20,}"|“[^”]{20,}”')
 
 
 def _cites_from_memory(text: str) -> bool:
-    """A reference such as 'T. Nakamura et al., "Whistler Observations...", JGR vol. 82' was not among the passages."""
-    return bool(_MEMORY_CITATION.search(text))
+    """A reference such as 'T. Nakamura et al., "Whistler Observations...", JGR vol. 82' was not among the passages.
+
+    A reference that begins inside quotation marks is left out: a passage it quotes may itself cite others
+    ("Inan et al., 1990"). A quoted title after "et al.," still counts, since the reference begins outside.
+    """
+    quoted = [(m.start(), m.end()) for m in _QUOTED.finditer(text)]
+    return any(not any(start < m.start() < end for start, end in quoted) for m in _MEMORY_CITATION.finditer(text))
