@@ -116,3 +116,10 @@ def test_it_does_not_start_a_heartbeat_it_cannot_finish(config):
     report = org.run_session(minutes=3.25)  # 195 s: room for two heartbeats, not a third
     assert report.metrics["heartbeats"] == 2
     assert t.now <= 195
+
+
+def test_no_brier_score_without_an_addressed_prediction(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(judge="neither"))
+    report = org.run_session(1)
+    assert report.metrics["predictions_confirmed"] == 0 and report.metrics["mean_brier"] is None
+    assert "no Brier score yet" in report.markdown

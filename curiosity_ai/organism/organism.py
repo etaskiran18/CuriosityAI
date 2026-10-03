@@ -703,8 +703,8 @@ class CuriosityOrganism:
             if any(overlap(quote, used) >= 0.5 for used in already_used):
                 continue  # the same words cannot be both expected and unexpected
             finding = _as_str(item.get("finding")).strip()
-            if re.fullmatch(r"\[?S\d+\]?", finding):
-                finding = ""  # the model put the source label where the finding belongs
+            if re.fullmatch(r"\[?S\d+\]?", finding) or finding.lower().startswith("only if something"):
+                finding = ""  # the source label where the finding belongs, or the schema hint copied back
             if len(finding.split()) < 4:
                 finding = ""  # two words are a label, not a finding: the quote must speak for itself
             finding = one_line(finding, 300) or one_line(quote, 200)
@@ -718,9 +718,10 @@ class CuriosityOrganism:
     ) -> list[dict[str, Any]]:
         """The blind judge decides which quotes really confirm or contradict an expectation.
 
-        A quote the judge finds beside the point turns the check into "not
-        addressed"; an unexpected finding it does not accept is dropped. If the
-        judge cannot answer, the organism's own verdicts stand (and say so).
+        Only what the judge accepts counts. A quote it finds beside the point, or
+        does not judge at all (a small judge sometimes skips one), turns the check
+        into "not addressed", and an unexpected finding it does not accept is
+        dropped. The quote and the organism's own claim stay on record.
         """
         if self.judge is None:
             return []
@@ -754,12 +755,12 @@ class CuriosityOrganism:
                     item.status = "confirmed"
                 elif verdict.verdict == "contradicts":
                     item.status = "contradicted"
-                elif verdict.verdict == "neither":
-                    item.status = "not_addressed"  # the quote stays on record, as evidence for nothing
+                else:
+                    item.status = "not_addressed"  # beside the point, or not judged: evidence for nothing
             else:
                 agent = "finding"
                 item["judge"] = verdict.verdict
-                if verdict.verdict in ("supports", "unjudged"):
+                if verdict.verdict == "supports":
                     kept.append(item)
             judgments.append({
                 "kind": kind, "claim": pair.claim, "quote": pair.quote, "source": pair.source,

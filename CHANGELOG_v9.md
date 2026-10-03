@@ -35,4 +35,33 @@ time-split tests. See [docs/RESEARCHER.md](docs/RESEARCHER.md).
 * Each heartbeat now makes 9 calls to the model (10 when it must restate hedged predictions), up from 6: the judge checks the quotes, then the new beliefs, then rates the new question, each in a short call of its own (a small model mixes up two tasks in one call).
 * After updating, start a new life (`--new-life`): beliefs in an old life were graded by the old,
   more lenient rules.
-* Tests: 157, all offline (the scripted model now also plays the judge, the grader and the topic setup).
+* Tests: 160, all offline (the scripted model now also plays the judge, the grader and the topic setup).
+
+## Tested on a real model
+
+A 5-heartbeat run with a small model (qwen2.5:3b, on a CPU) showed the new machinery working:
+0 of 17 predictions hedged (the v8 hour: 97%), closeness to the topic 0.97, the blind judge rejecting
+spurious "confirmations" (a Republic passage about "contemplating the expanse of heaven" offered as
+proof that "philosophy begins in wonder"), and the self-check diagnosing **restless curiositas**
+(a new question every heartbeat, none settled, no evidence-backed progress) and adjusting itself.
+The exam went from 0% to 14%, but its grounded score stayed at 0%: the correct answers came from the
+language model's own knowledge (and a lenient small grader), not from what it read. That difference is
+what the grounded score is for.
+
+The run also found problems, fixed before release:
+
+* A "finding" that only copied its quote let the judge approve a text against itself; the judge now
+  checks whether such a passage bears on the question at all.
+* Fragments such as "Yes, my boy, outer barbarians." passed as findings; unexpected findings now need a
+  quote of at least 8 words, and findings of fewer than 4 words fall back to their quote.
+* Side findings raised confidence; now only confirmed predictions can raise it by more than 0.05.
+* A small judge mixed up checking quotes and rating questions in one call (it rated a question about
+  curiosity "off topic"); rating is now a call of its own, and a question is set aside only when the
+  judge and the topic's own words agree.
+* Long predictions crowded the question out of the search (asked about Plato's "philosophy begins in
+  wonder", it never read the *Theaetetus*); half the passages now come from the question alone.
+* A pair the judge skipped counted as before; now nothing counts without the judge's approval.
+* Copied instructions and schema hints ("DEFEND (the objection fails: ...)", "only if something
+  genuinely surprised you") are removed.
+* The report said "mean Brier score 0.00" when no prediction was addressed; it now says there is no
+  score yet.

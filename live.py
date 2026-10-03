@@ -362,7 +362,7 @@ def print_session(report) -> None:
             f"questions born {m['questions_born']}, set aside {m['questions_set_aside']} | new beliefs {m['beliefs_new']} "
             f"({m['beliefs_grounded']} grounded) | doubted {m['beliefs_doubted']}\n"
             f"predictions {m['predictions']} (hedged {m['hedged_rate']:.0%}), confirmed {m['predictions_confirmed']}, "
-            f"contradicted {m['predictions_contradicted']} | Brier {m['mean_brier']:.2f} | {judge} | "
+            f"contradicted {m['predictions_contradicted']} | Brier {'-' if m['mean_brier'] is None else format(m['mean_brier'], '.2f')} | {judge} | "
             f"on topic {m['mean_on_topic']:.2f} | invented quotes caught {m['quotes_rejected']} | texts acquired {m['acquisitions']}{exam}",
             title=f"Session {escape(report.session_id)}",
         )

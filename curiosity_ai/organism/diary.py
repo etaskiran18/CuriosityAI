@@ -23,6 +23,8 @@ def _check_line(c: dict) -> str:
     quote = f' - [{c.get("source")}] "{one_line(c.get("quote", ""), 220)}"' if c.get("quote") and status != "unverified" else ""
     if judge == "neither" and claimed in ("confirmed", "contradicted"):
         return f"- E{c.get('expectation')}: I said {claimed}, but the judge found the quote beside the point (not counted){quote}"
+    if judge == "unjudged" and claimed in ("confirmed", "contradicted"):
+        return f"- E{c.get('expectation')}: I said {claimed}, but the judge did not check it, so it is not counted{quote}"
     if judge in ("supports", "contradicts") and claimed in ("confirmed", "contradicted") and claimed != status:
         return f"- E{c.get('expectation')}: I said {claimed}; the judge read it as {_STATUS_MARK.get(status, status)}{quote}"
     mark = _STATUS_MARK.get(status, status)

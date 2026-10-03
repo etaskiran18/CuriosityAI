@@ -115,12 +115,14 @@ def test_an_approved_belief_keeps_the_quote_the_judge_saw(config):
     assert judged["quote"] == grounded[0].evidence[0].quote
 
 
-def test_an_absent_judge_leaves_the_organisms_verdicts_but_grounds_nothing(config):
+def test_without_the_judges_approval_nothing_counts(config):
     org = CuriosityOrganism(config, llm=ScriptedLLM(fail_steps=("JUDGE",)))
     ep = org.heartbeat()
-    assert ep.checks[0]["status"] == "confirmed" and ep.checks[0]["judge"] == "unjudged"
+    assert ep.checks[0]["claimed"] == "confirmed" and ep.checks[0]["judge"] == "unjudged"
+    assert ep.checks[0]["status"] == "not_addressed" and ep.support == 0 and ep.unexpected == []
     assert any(e.startswith("judge:") for e in ep.errors)
     assert all(org.state.beliefs[b].interpretive for b in ep.new_belief_ids)
+    assert "the judge did not check it" in (org.home / "diary.md").read_text(encoding="utf-8")
 
 
 def test_without_a_judge_the_organism_grades_itself_as_before(config):

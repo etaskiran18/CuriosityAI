@@ -194,9 +194,10 @@ def compute_metrics(
         "hedged_rate": round(hedged / len(predictions), 3) if predictions else 0.0,
         "predictions_confirmed": statuses.get("confirmed", 0),
         "predictions_contradicted": statuses.get("contradicted", 0),
-        "mean_brier": _mean(briers),
-        "brier_first_half": _mean(briers[: len(briers) // 2]),
-        "brier_second_half": _mean(briers[len(briers) // 2:]),
+        # None when no prediction was addressed: 0.0 would read as perfect predictions.
+        "mean_brier": _mean(briers) if briers else None,
+        "brier_first_half": _mean(briers[: len(briers) // 2]) if len(briers) >= 2 else None,
+        "brier_second_half": _mean(briers[len(briers) // 2:]) if len(briers) >= 2 else None,
         "judge_pairs": len(judgments),
         "judge_agreement": round(sum(1 for j in judgments if agrees(j)) / len(judgments), 3) if judgments else None,
         "judge_rejected": sum(1 for j in judgments if j.get("judge") == "neither"),
@@ -272,8 +273,7 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"- **Learning:** questions revisited: {m['revisited_questions']}; on them, surprise changed by "
         f"{m['surprise_change_on_revisits']:+.2f} from first to last visit (negative means it predicts the texts better).",
         f"- **Predictions:** {m['predictions']} made, {m['predictions_hedged']} of them hedged ({m['hedged_rate']:.0%}); "
-        f"the texts confirmed {m['predictions_confirmed']} and contradicted {m['predictions_contradicted']}; mean Brier score "
-        f"{m['mean_brier']:.2f} (first half {m['brier_first_half']:.2f}, second half {m['brier_second_half']:.2f}; lower is better).",
+        f"the texts confirmed {m['predictions_confirmed']} and contradicted {m['predictions_contradicted']}; {_brier_text(m)}.",
         _judge_line(m),
         f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "
         f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong.",
@@ -341,6 +341,15 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
 
 
 _STANCE_WORD = {"defend": "defended", "revise": "revised", "concede": "conceded"}
+
+
+def _brier_text(m: dict[str, Any]) -> str:
+    if m.get("mean_brier") is None:
+        return "no prediction was confirmed or contradicted, so there is no Brier score yet"
+    halves = ""
+    if m.get("brier_first_half") is not None:
+        halves = f" (first half {m['brier_first_half']:.2f}, second half {m['brier_second_half']:.2f})"
+    return f"mean Brier score {m['mean_brier']:.2f}{halves}; 0 is perfect, 0.25 is a coin flip"
 
 
 def _judge_line(m: dict[str, Any]) -> str:
