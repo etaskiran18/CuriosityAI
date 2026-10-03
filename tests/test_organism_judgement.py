@@ -536,3 +536,29 @@ def test_a_probability_written_into_the_claim_is_taken_out(config):
     assert first.claim == "Most whistlers reach the equator inside the plasmasphere" and first.probability == pytest.approx(0.75)
     assert second.claim == "The density drops by a factor of 5 at the plasmapause" and second.probability == pytest.approx(0.4)
 
+
+def test_a_retry_that_only_denies_its_own_predictions_is_not_kept(config):
+    """mistral, asked for claims a text could contradict, negated them ("X is not crucial", p = 0.05)."""
+    believed = [
+        {"author": "Plato", "claim": "Wonder plays a significant role in philosophy, the feeling of a philosopher", "probability": 0.8},
+        {"author": "Dewey", "claim": "Curiosity becomes intellectual through problems found in observation", "probability": 0.65},
+    ]
+    denials = [
+        {"author": "Plato", "claim": "Wonder is not the feeling of a philosopher", "probability": 0.05},
+        {"author": "Dewey", "claim": "Curiosity never becomes intellectual through problems", "probability": 0.1},
+    ]
+
+    class Denying(ScriptedLLM):
+        def json_chat(self, system, user, schema_hint, **kw):
+            reply = super().json_chat(system, user, schema_hint, **kw)
+            if "[ANTICIPATE]" in system:
+                reply["expectations"] = denials if "Write all your predictions again" in user else believed
+            return reply
+
+    llm = Denying()
+    ep = CuriosityOrganism(config, llm=llm).heartbeat()
+    assert llm.calls.count("ANTICIPATE") == 2  # the influence-only claim was asked again...
+    assert [p["claim"] for p in ep.predictions] == [b["claim"] for b in believed]  # ...but the denials were not kept
+    retry_prompt = [prompt for step, prompt in llm.history if step == "ANTICIPATE"][1]
+    assert "Do not turn them into denials" in retry_prompt
+

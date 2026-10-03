@@ -675,14 +675,18 @@ class CuriosityOrganism:
                 parts.append("These only say that one thing influences another, which every text agrees with:\n"
                              + "\n".join(f"- {p.claim}" for p in weak))
             retry = user + "\n\n" + "\n\n".join(parts) + (
-                "\n\nWrite all your predictions again as definite claims a passage could contradict: say which way, how "
-                "much, or under which condition, or name the mechanism. State what you expect the texts to say, not its "
-                "denial. Do not write may, might, could or possibly; put your doubt into the probability instead."
+                "\n\nWrite all your predictions again as definite claims about what you expect the texts to say, precise "
+                "enough that a passage could contradict them: say which way, how much, under which condition, or by which "
+                "mechanism. Do not turn them into denials of what you expect. Do not write may, might, could or possibly; "
+                "put your doubt into the probability instead."
             )
             again = self._parse_anticipation(
                 self._json(self._sys("ANTICIPATE"), retry, P.ANTICIPATE_SCHEMA, temperature=0.3, errors=errors, step="anticipate-retry")
             )
-            if again.predictions and sum(not p.risky for p in again.predictions) < len(hedged) + len(weak):
+            # Keep the retry only if it tests more of what it actually expects. Told to write claims a text could
+            # contradict, mistral denied its own predictions instead ("X is not crucial", p = 0.05): risky in form,
+            # but nothing it believed was left to test.
+            if again.predictions and _believed_risky(again.predictions) > _believed_risky(anticipation.predictions):
                 again.answer = again.answer or anticipation.answer
                 again.confidence = anticipation.confidence if again.confidence is None else again.confidence
                 anticipation = again
@@ -1848,6 +1852,11 @@ _STATED_PROBABILITY = re.compile(
     r"(\d{1,3}\s*%|0?\.\d+|1(?:\.0+)?)\)?\s*\.?\s*$",
     re.IGNORECASE,
 )
+
+
+def _believed_risky(predictions: list["Prediction"]) -> int:
+    """How many predictions could fail and are expected to hold (p >= 0.5): the ones a text can really test."""
+    return sum(1 for p in predictions if p.risky and p.probability >= 0.5)
 
 
 def _statement(answer: str) -> str:
