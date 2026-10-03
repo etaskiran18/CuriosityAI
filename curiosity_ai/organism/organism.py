@@ -669,8 +669,10 @@ class CuriosityOrganism:
         if self.oc.prediction_retry and (hedged or weak):
             parts = []
             if hedged:
-                parts.append("These are hedged guesses (may, might, could), which no text could ever prove wrong:\n"
-                             + "\n".join(f"- {p.claim}" for p in hedged))
+                parts.append("These are hedged guesses (may, might, could) or only name what a text will discuss or "
+                             "describe, which no text could ever prove wrong:\n" + "\n".join(f"- {p.claim}" for p in hedged)
+                             + "\nWrite the finding you expect instead: 'X will describe how Y depends on Z' becomes "
+                             "'Y increases with Z'.")
             if weak:
                 parts.append("These only say that one thing influences another, which every text agrees with:\n"
                              + "\n".join(f"- {p.claim}" for p in weak))

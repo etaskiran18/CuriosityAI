@@ -177,7 +177,7 @@ _HEDGE_RE = re.compile(
     r"investigate|highlight|emphasi[sz]e|consider|touch on|deal with|focus on|elaborate on|analy[sz]e)"
     # "The paper discusses the role of whistlers" names a topic in the present tense: still no claim.
     r"|(?:discuss|explor|examin|address|review|investigat|consider|highlight|stud(?:y|ies|ied))\w*\s+(?:the\s+)?"
-    r"(?:role|impact|influence|relationship|effect|importance|significance|mechanisms?|nature)\s+of"
+    r"(?:role|impact|influence|relationship|link|connection|effect|importance|significance|mechanisms?|nature)\s+(?:of|between)"
     r"|provid\w*\s+(?:new\s+|valuable\s+|key\s+)?insights?\s+into)\b",
     re.IGNORECASE,
 )
