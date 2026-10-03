@@ -171,7 +171,9 @@ real hour that was exactly what made every self-check say "healthy" while it dri
 **Depth before breadth.** A first research run asked a new question at almost every heartbeat and
 never returned to one; four of them were the same question reworded. Now a new question needs a reason:
 a "surprise" needs evidence the judge accepted and a real prediction error, a "contradiction" needs a
-contradiction, an "objection" needs the skeptic to have quoted a text, and a question born from a gap
+contradiction the judge accepted (doubting an earlier belief counts only when the heartbeat brought such
+evidence: a small model doubts its earlier guesses on nothing but newer guesses), an "objection" needs
+the skeptic to have quoted a text, and a question born from a gap
 waits until its parent has had a second look (`min_visits_before_children`, 2): a gap is a gap only if it
 is still there when you look again, often with newly fetched texts. Proposals without a reason yet are
 noted in the diary ("kept for a second look").

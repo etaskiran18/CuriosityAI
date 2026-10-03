@@ -71,6 +71,11 @@ The run also found problems, fixed before release:
 * **Deeper investigation.** It visited 9 questions in 9 heartbeats and returned to none; 4 of its new
   questions were one question reworded. Now it returns to a question when texts were fetched for it, and
   a new question needs a reason (see "Depth before breadth" in docs/ORGANISM.md).
+* **A doubt without evidence is no contradiction.** A check run still gave birth to 4 questions in 5
+  heartbeats, all as "contradictions", with no quote verified: the model doubted one of its earlier
+  guesses at each heartbeat, and each doubt let a question be born at once. A doubt now counts as a
+  reason only when the judge accepted evidence in the same heartbeat; the doubt itself still lowers the
+  belief.
 * **Replies cut off by the length limit** ("Could not extract JSON object") are repaired, keeping every
   complete value; the limit is raised to 1000 tokens, and authors are asked for as one family name.
 * **"Carpenter will discuss X" counts as hedged**: it says what a text is about, not what it claims, and

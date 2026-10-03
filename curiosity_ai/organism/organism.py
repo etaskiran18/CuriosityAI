@@ -1042,6 +1042,9 @@ class CuriosityOrganism:
         set_aside: list[str] = []
         held_back: list[str] = []
         evidence = support + contradicted > 0 or bool(comparison.unexpected)
+        # Doubting an earlier belief is a contradiction only on evidence the judge accepted: a small model
+        # doubts one of its earlier guesses at almost every heartbeat, on nothing but a newer guess.
+        contradiction = contradicted > 0 or (bool(doubted) and evidence)
         skeptic_quoted = any(t.get("voice") == "Skeptic" and t.get("evidence") == "quote" for t in dialogue)
         second_look = len(q.active_visits) >= oc.min_visits_before_children
         candidates: list[tuple[float, NewQuestion]] = []
@@ -1058,7 +1061,7 @@ class CuriosityOrganism:
         for relevance, nq in sorted(candidates, key=lambda item: -item[0]):
             if len(born) >= oc.max_new_questions_per_heartbeat:
                 break
-            trigger = _birth_trigger(nq.trigger, evidence=evidence, error=error, contradicted=bool(contradicted or doubted))
+            trigger = _birth_trigger(nq.trigger, evidence=evidence, error=error, contradicted=contradiction)
             if not _may_be_born(trigger, second_look=second_look, skeptic_quoted=skeptic_quoted):
                 held_back.append(one_line(nq.text, 200))
                 continue

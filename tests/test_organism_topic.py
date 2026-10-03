@@ -160,6 +160,27 @@ def test_a_surprise_without_evidence_is_only_a_gap(config):
     assert ep.new_question_ids == [] and ep.held_back_questions  # the judge accepted no evidence
 
 
+def test_doubting_an_old_guess_without_evidence_is_no_contradiction(config):
+    """In a real run a 3B model doubted an earlier belief at almost every heartbeat, with no quote the
+    judge accepted, and each doubt let a "contradiction" question be born at once."""
+    contradiction = {**GAP, "trigger": "contradiction"}
+
+    def live(judge: str):
+        settle = {"answer": "a", "would_be_wrong_if": "b c d e", "confidence": 0.4, "learned": [], "contradicts": ["B1"],
+                  "new_questions": [contradiction]}
+        org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle, judge=judge))
+        belief = org.state.add_belief("Perplexity is only a feeling of lack.", confidence=0.5)
+        org.state.questions["Q1"].related_beliefs.append(belief.id)
+        return org.heartbeat()
+
+    ep = live("neither")
+    assert ep.doubted_belief_ids == ["B1"]  # the doubt itself still counts
+    assert ep.new_question_ids == [] and ep.held_back_questions == [GAP["question"]]
+    config.organism.home += "-with-evidence"
+    ep = live("supports")
+    assert ep.doubted_belief_ids == ["B1"] and len(ep.new_question_ids) == 1
+
+
 def test_a_real_surprise_gives_birth_at_once(config):
     surprise = {**GAP, "trigger": "surprise"}
     ep = CuriosityOrganism(config, llm=proposing([surprise])).heartbeat()
