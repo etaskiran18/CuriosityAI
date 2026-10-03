@@ -697,12 +697,16 @@ class CuriosityOrganism:
             if quote is None:
                 rejected += 1
                 continue
+            if len(quote.split()) < 8:
+                continue  # "Yes, my boy, outer barbarians." is real, but too short to say anything surprising
             already_used = [c.quote for c in checks.values() if c.quote and c.source == label] + [u["quote"] for u in unexpected]
             if any(overlap(quote, used) >= 0.5 for used in already_used):
                 continue  # the same words cannot be both expected and unexpected
             finding = _as_str(item.get("finding")).strip()
             if re.fullmatch(r"\[?S\d+\]?", finding):
                 finding = ""  # the model put the source label where the finding belongs
+            if len(finding.split()) < 4:
+                finding = ""  # two words are a label, not a finding: the quote must speak for itself
             finding = one_line(finding, 300) or one_line(quote, 200)
             unexpected.append({"finding": finding, "source": label, "quote": quote})
         for c in checks.values():

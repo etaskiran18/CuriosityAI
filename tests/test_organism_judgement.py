@@ -233,3 +233,18 @@ def test_a_finding_that_only_copies_its_quote_is_judged_for_relevance(config):
     CuriosityOrganism(config, llm=llm).heartbeat()
     first_judgement = next(prompt for step, prompt in llm.history if step == "JUDGE")
     assert "CLAIM: This passage bears directly on the question: Plato says philosophy begins in wonder" in first_judgement
+
+
+def test_a_fragment_too_short_to_say_anything_is_not_a_finding(config):
+    class Fragments(ScriptedLLM):
+        def json_chat(self, system, user, schema_hint, **kw):
+            data = super().json_chat(system, user, schema_hint, **kw)
+            if "[COMPARE]" in system:
+                from .organism_fakes import passages_in, words
+
+                first = next(iter(passages_in(user).values()))
+                data["unexpected"] = [{"finding": "outer barbarians.", "source": "S1", "quote": words(first, 0, 5)}]
+            return data
+
+    ep = CuriosityOrganism(config, llm=Fragments()).heartbeat()
+    assert ep.unexpected == [] and ep.rejected_quotes == 1  # only the invented E3 quote counts as invented
