@@ -676,8 +676,8 @@ class CuriosityOrganism:
                              + "\n".join(f"- {p.claim}" for p in weak))
             retry = user + "\n\n" + "\n\n".join(parts) + (
                 "\n\nWrite all your predictions again as definite claims a passage could contradict: say which way, how "
-                "much, or under which condition, or name the mechanism. Do not write may, might, could or possibly; put "
-                "your doubt into the probability instead."
+                "much, or under which condition, or name the mechanism. State what you expect the texts to say, not its "
+                "denial. Do not write may, might, could or possibly; put your doubt into the probability instead."
             )
             again = self._parse_anticipation(
                 self._json(self._sys("ANTICIPATE"), retry, P.ANTICIPATE_SCHEMA, temperature=0.3, errors=errors, step="anticipate-retry")
@@ -981,6 +981,13 @@ class CuriosityOrganism:
         # came true says nothing, since no text could have shown otherwise.
         risky = [p.risky for p in anticipation.predictions]
         support = sum(1 for c in comparison.checks if c.status == "confirmed" and 1 <= c.expectation <= len(risky) and risky[c.expectation - 1])
+        # A contradiction surprises only if it overturns what it expected (p >= 0.5): a 7B model, asked for claims a
+        # text could contradict, denied what it believed ("X is not crucial", p = 0.05). Being "contradicted" there is
+        # no surprising fact, and licenses neither doubting a quoted belief nor a "contradiction" question.
+        surprising = sum(
+            1 for c in comparison.checks
+            if c.status == "contradicted" and 1 <= c.expectation <= len(probabilities) and probabilities[c.expectation - 1] >= 0.5
+        )
         stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
         answer = settlement.answer or anticipation.answer or q.answer
         # "Further research is needed to uncover X" says that the question is open, not what the answer is.
@@ -1119,7 +1126,7 @@ class CuriosityOrganism:
             belief = st.beliefs.get(bid)
             if belief is None or bid not in shown or bid in new_beliefs or bid in reinforced:
                 continue
-            if not belief.interpretive and contradicted == 0:
+            if not belief.interpretive and surprising == 0:
                 paper_doubts.append(bid)
                 continue
             belief.confidence = clamp(belief.confidence - 0.15)
@@ -1142,7 +1149,7 @@ class CuriosityOrganism:
         evidence = support + contradicted > 0 or bool(comparison.unexpected)
         # Doubting an earlier belief is a contradiction only on evidence the judge accepted: a small model
         # doubts one of its earlier guesses at almost every heartbeat, on nothing but a newer guess.
-        contradiction = contradicted > 0 or (bool(doubted) and evidence)
+        contradiction = surprising > 0 or (bool(doubted) and evidence)
         skeptic_quoted = any(t.get("voice") == "Skeptic" and t.get("evidence") == "quote" for t in dialogue)
         second_look = len(q.active_visits) >= oc.min_visits_before_children
         candidates: list[tuple[float, NewQuestion]] = []

@@ -386,8 +386,18 @@ def test_a_belief_resting_on_a_text_yields_only_to_a_contradiction(config):
     """Peirce: no paper doubt. A 7B model doubted the person's own article 36 times while nothing contradicted it."""
     config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
 
-    def live(contradict_for_real: bool):
-        llm = ScriptedLLM(contradict_for_real=contradict_for_real, settle=settle(contradicts=["B1"]))
+    class Believing(ScriptedLLM):
+        """Gives the prediction that the texts will contradict ("Reason can answer every question") p = 0.7."""
+
+        def json_chat(self, system, user, schema_hint, **kw):
+            reply = super().json_chat(system, user, schema_hint, **kw)
+            if "[ANTICIPATE]" in system:
+                reply["expectations"] = [dict(e, probability=0.7) if "every question" in e["claim"] else e for e in reply["expectations"]]
+            return reply
+
+    def live(contradict_for_real: bool, believed: bool = True):
+        kind = Believing if believed else ScriptedLLM
+        llm = kind(contradict_for_real=contradict_for_real, settle=settle(contradicts=["B1"]))
         org = CuriosityOrganism(config, llm=llm)
         quote = Evidence(citation="[BOOK:Kant]", quote="human reason is burdened by questions it cannot dismiss", source_title="Kant")
         belief = org.state.add_belief("Reason can answer every question that it raises.", confidence=0.6, evidence=[quote])
@@ -400,6 +410,10 @@ def test_a_belief_resting_on_a_text_yields_only_to_a_contradiction(config):
     config.organism.home += "-contradicted"
     org, belief, ep = live(contradict_for_real=True)
     assert ep.contradicted == 1 and ep.doubted_belief_ids == [belief.id]
+    # Contradicting what it never believed (p = 0.3) is no surprising fact: no doubt from it.
+    config.organism.home += "-unbelieved"
+    org, belief, ep = live(contradict_for_real=True, believed=False)
+    assert ep.contradicted == 1 and ep.doubted_belief_ids == [] and ep.paper_doubt_ids == [belief.id]
 
 
 # -- after the fourth research run --------------------------------------------------------

@@ -423,6 +423,8 @@ def test_background_texts_pass_and_unrelated_ones_do_not(config):
     ("Resonant Inverse Compton Scattering and Hard X-ray Emission in Magnetar Magnetospheres", True),
     ("Runaway electron interactions with whistler waves in tokamak plasmas", True),
     ("Modeling whistler-mode waves with electrons in the solar wind inside 0.3 AU", True),
+    ("Co-existence of Whistler Waves with Kinetic Alfven Wave Turbulence for the High-beta Solar Wind Plasma", True),
+    ("Solar wind driving of plasmaspheric erosion", False),
     ("Overview of Saturn lightning observations", True),
     ("VLF transmitters as tools for monitoring the plasmasphere", False),
     ("Specularly reflected whistler: A low-latitude channel to couple lightning energy to the magnetosphere", False),

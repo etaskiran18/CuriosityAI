@@ -50,7 +50,7 @@ USER_AGENT_PRODUCT = "CuriosityAI/0.8"
 _ELSEWHERE_RE = re.compile(
     r"\b(?:Venus|Venusian|Mars|Martian|Jupiter|Jovian|Saturn|Saturnian|Uranus|Neptune|Pluto|Ganymede|Enceladus"
     r"|exoplanets?|magnetars?|pulsars?|neutron stars?|black holes?|white dwarfs?|quasars?|galax(?:y|ies)|accretion dis[ck]s?"
-    r"|tokamaks?|stellarators?|in the solar wind|solar flares?)\b",
+    r"|tokamaks?|stellarators?|in the solar wind|solar[- ]wind plasmas?|solar flares?)\b",
     re.IGNORECASE,
 )
 
