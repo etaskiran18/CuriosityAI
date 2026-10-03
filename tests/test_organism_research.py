@@ -413,3 +413,13 @@ def test_each_claim_of_the_draft_is_set_against_what_other_texts_said():
     lone = "\n".join(_draft_section(episodes[:1], organism))
     assert "no other text it read says this yet" in lone
 
+
+@pytest.mark.parametrize("author, junk", [
+    ("iitm", True), ("user", True), ("Microsoft Office User", True),
+    ("Enrico Camporeale", False), ("D. L. Carpenter", False), ("V. V. Shastun, O. V. Agapitov", False),
+])
+def test_who_made_the_file_is_not_who_wrote_the_paper(author, junk):
+    from curiosity_ai.organism.papers import _junk_author
+
+    assert _junk_author(author) is junk
+

@@ -124,6 +124,8 @@ def pdf_text(path: Path, *, max_pages: int = 300) -> tuple[dict[str, str], str]:
     info = reader.metadata
     title = _clean_meta(getattr(info, "title", None) if info else None)
     author = _clean_meta(getattr(info, "author", None) if info else None)
+    if _junk_author(author):
+        author = ""  # "iitm", "user", "Microsoft Office User": who made the file, not who wrote the paper
     body = "\n\n".join(pages)
     if not title or _looks_like_header(title) or not _mostly_latin(title) or re.search(r"microsoft word|untitled|\.docx?$|\.tex$|^paper$", title, re.IGNORECASE):
         title = _first_title_line(body) or path.stem.replace("_", " ")
@@ -237,6 +239,15 @@ def _continues_title(line: str, nxt: str) -> bool:
     if nxt[0].islower():
         return True
     return not re.search(r"[\d,;@]|\b[A-Z]\.", nxt)
+
+
+_JUNK_AUTHORS = {"user", "admin", "administrator", "owner", "author", "authors", "microsoft office user", "default",
+                 "guest", "pc", "home", "editor", "test", "windows user"}
+
+
+def _junk_author(author: str) -> bool:
+    a = author.strip().lower()
+    return a in _JUNK_AUTHORS or (" " not in a and "," not in a and author == author.lower())
 
 
 def _clean_meta(value: object) -> str:
