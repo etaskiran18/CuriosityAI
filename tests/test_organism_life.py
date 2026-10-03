@@ -105,7 +105,8 @@ def test_a_new_answer_does_not_inherit_the_old_answers_confidence(config):
     assert ep.answer == guess and ep.unsupported_answer and q.support == []
     assert ep.confidence == pytest.approx(config.organism.evidence_ceiling_base)
     assert "cannot keep the confidence the old answer had" in (org.home / "diary.md").read_text(encoding="utf-8")
-    assert "no quote the judge accepted for this answer" in render_research_map(org)
+    hypotheses = render_research_map(org).split("## Hypotheses: answers the texts support", 1)[1].split("## ", 1)[0]
+    assert "none of its answers is supported" in hypotheses and guess not in hypotheses
 
 
 def test_certainty_cannot_grow_without_evidence(config):

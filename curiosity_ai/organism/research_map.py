@@ -74,14 +74,15 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
         lines.append("- none open")
     lines.append("")
 
-    # Hypotheses: answers held with some confidence.
+    # Hypotheses: answers that at least one quote the judge accepted supports. (An answer no quote supports
+    # is held at 0.5 at most; it stays in the table of open questions above.)
     held = sorted(
-        (q for q in st.questions.values() if q.answer and q.visits and q.confidence >= 0.5),
-        key=lambda q: -q.confidence,
+        (q for q in st.questions.values() if q.answer and q.visits and q.support and q.confidence >= 0.5),
+        key=lambda q: (-len(q.support), -q.confidence),
     )
-    lines += ["## Hypotheses (answers it holds with confidence 0.5 or more)", ""]
+    lines += ["## Hypotheses: answers the texts support", ""]
     if not held:
-        lines += ["- none yet", ""]
+        lines += ["- none yet: none of its answers is supported by a quote the judge accepted", ""]
     falsifiers = {e.question_id: e.falsifier for e in episodes if e.falsifier}
     contra_by_q = _contradictions(episodes)
     for q in held[:12]:
@@ -92,8 +93,6 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
             lines.append(f"- **Would be wrong if:** {falsifiers[q.id]}")
         for e in q.support:
             lines.append(f'- **Supported by:** "{one_line(e.quote, 200)}" {e.citation}')
-        if not q.support:
-            lines.append("- **Supported by:** no quote the judge accepted for this answer")
         support = [st.beliefs[bid] for bid in q.related_beliefs if bid in st.beliefs and st.beliefs[bid].evidence]
         for b in support[:3]:
             e = b.evidence[0]

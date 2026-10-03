@@ -72,7 +72,7 @@ Your questions are always treated as central to the topic.
 
 | File in the life's folder | What it is |
 |---|---|
-| `research_map.md` | **The main result.** Open questions ranked by how strongly they pull it; hypotheses (answers it holds with confidence 0.5 or more), what would refute each, the quotes the judge accepted for each answer ("Supported by"), related quoted beliefs, and the predictions the papers contradicted; **surprises** (predictions the papers contradicted); **possible gaps** (questions its papers kept silent about, even after searching); beliefs it came to doubt; a reading list. |
+| `research_map.md` | **The main result.** Open questions ranked by how strongly they pull it; hypotheses (answers that quotes the judge accepted support, each with those quotes and what would refute it), related quoted beliefs, and the predictions the papers contradicted; **surprises** (predictions the papers contradicted); **possible gaps** (questions its papers kept silent about, even after searching); beliefs it came to doubt; a reading list. |
 | `diary.md` | Every heartbeat in words: what it predicted (with probabilities), what it read, what the judge accepted, the debate, what changed. |
 | `sessions/<id>/report.md` | Each session's summary and numbers. |
 | `mind.json` | Everything it knows and wonders about, as data. |
