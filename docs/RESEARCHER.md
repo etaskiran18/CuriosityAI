@@ -85,7 +85,9 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 * predictions must be able to fail, with a probability; hedged guesses ("may", "might") are refused;
 * a blind judge decides what each quote really supports; a sample is saved for you to check;
 * answers must say what would prove them wrong; vague answers ("complex", "many factors") earn no confidence,
-  and hedged ones ("may play a role", "could potentially") earn very little;
+  and hedged ones ("may play a role", "could potentially") earn very little, as do answers that would be
+  wrong only "if X played no role at all";
+* a belief resting on a quote from your papers is doubted only when a text contradicts it;
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
 * texts it fetches must not be unrelated to the question, as the judge reads their title and beginning
   (background articles are kept);

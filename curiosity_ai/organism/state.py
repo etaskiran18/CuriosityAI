@@ -167,12 +167,14 @@ class Episode(BaseModel):
     falsifier: str = ""  # what would show the answer wrong
     vague: bool = False  # the answer was too vague to be wrong, so confidence could not rise
     hedged_answer: bool = False  # the answer was hedged ("may", "could"), so confidence could rise by 0.05 at most
+    strawman_falsifier: bool = False  # it would be wrong only if nothing at all (or one thing alone) were at play
     confidence: float = 0.0
     insight: str = ""
     new_belief_ids: list[str] = Field(default_factory=list)
     grounded_new_beliefs: int = 0  # new beliefs backed by a verified quote
     reinforced_belief_ids: list[str] = Field(default_factory=list)
     doubted_belief_ids: list[str] = Field(default_factory=list)
+    paper_doubt_ids: list[str] = Field(default_factory=list)  # beliefs resting on a text it wanted to doubt with no contradiction
     new_question_ids: list[str] = Field(default_factory=list)
     reawakened_question_ids: list[str] = Field(default_factory=list)
     set_aside_questions: list[str] = Field(default_factory=list)  # proposed, but off the topic

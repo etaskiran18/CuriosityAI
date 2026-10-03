@@ -120,6 +120,9 @@ class Diary:
             lines.append("*My answer is too vague to be wrong, so I may not grow surer of it.*")
         elif ep.hedged_answer:
             lines.append("*My answer is hedged (may, could), so it could never be wrong: I may grow only a little surer of it.*")
+        elif ep.strawman_falsifier:
+            lines.append("*It would be wrong only if nothing at all, or one thing alone, were at play; no finding can show that, "
+                         "so I may grow only a little surer of it.*")
         if ep.insight:
             lines.append(f"*Insight:* {ep.insight}")
         for bid in ep.new_belief_ids:
@@ -135,6 +138,9 @@ class Diary:
             b = state.beliefs.get(bid)
             if b:
                 lines.append(f"- Now doubting **{bid}** -> {b.confidence:.2f}: {b.statement}")
+        if ep.paper_doubt_ids:
+            ids = ", ".join(f"**{bid}**" for bid in ep.paper_doubt_ids)
+            lines.append(f"- I wanted to doubt {ids}, but no text contradicted it: a belief that rests on a text gives way only to a text.")
         for qid in ep.new_question_ids:
             nq = state.questions.get(qid)
             if nq:

@@ -53,6 +53,8 @@ ROWS = [
     ("skeptic_quoted_rate", "debates where the skeptic quoted a text"),
     ("vague_answers", "answers too vague to be wrong"),
     ("hedged_answers", "answers hedged (may, could)"),
+    ("strawman_falsifiers", "answers wrong only if nothing were at play"),
+    ("paper_doubts", "doubts refused (no contradiction)"),
     ("mean_on_topic", "closeness to the topic"),
     ("questions_set_aside", "questions set aside (off topic)"),
     ("questions_held_back", "questions kept for a second look"),

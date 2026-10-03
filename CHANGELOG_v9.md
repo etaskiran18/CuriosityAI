@@ -118,3 +118,21 @@ and hedged only 4% of its predictions. Three things went wrong:
   report counts such answers, and the model is asked to state answers plainly.
 * **New questions should be answerable**: "a specific new question that a paper could answer".
 
+## After the third research run (53 heartbeats, the same topic and papers)
+
+The label leak was gone, no question was settled on a hedged answer, only 3 of 198 predictions were
+hedged, and it fetched mostly relevant papers (whistler-particle interactions, bounce resonance,
+field-line curvature scattering). But 16 of its 19 grounded beliefs quoted the person's own article, and:
+
+* **Paper doubt.** It doubted beliefs 36 times while the judge accepted no contradiction at all, among
+  them the article's central claim ("The plasmapause organizes the pathways ..."). A belief that rests on
+  an accepted quote is now doubted only when the judge accepted a contradiction in that heartbeat
+  (Peirce: doubt needs a surprising fact). Refused doubts are noted in the diary and counted.
+* **Falsifiers that test nothing.** 30 of 53 answers would have been wrong only "if X played no role at
+  all", "if Y were the only factor" or "regardless of conditions". Such an answer claims only that
+  something plays some part, which no finding can refute; it now gains at most 0.05 per heartbeat, like
+  a hedged answer. A check on the 53 falsifiers flagged 30 and none of six that name a real finding.
+* **Hedged beliefs were grounded.** 6 of the 19 grounded beliefs were hedged ("could play a crucial
+  role"); almost any related quote supports such a sentence. Hedged beliefs now stay interpretations.
+* **Answers that were questions** ("Can we infer ... thresholds ...?") replaced real answers; they no
+  longer do.

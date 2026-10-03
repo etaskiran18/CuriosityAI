@@ -193,6 +193,25 @@ def is_hedged(text: str) -> bool:
     return bool(_HEDGE_RE.search(text or ""))
 
 
+# "Would be wrong if X played no role at all" or "...if Y alone explained everything": such a falsifier
+# shows that the answer only claims that something plays some part. That survives every finding (an
+# existential claim cannot be falsified, as Popper noted), so it is not a real test. Seen in 31 of 53
+# answers of a 7B model.
+_STRAWMAN_RE = re.compile(
+    r"\b(?:no|any)\s+(?:significant\s+|measurable\s+|real\s+|meaningful\s+)?(?:role|influence|effect|impact|contribution|involvement)\b"
+    r"|\bnot\s+(?:play|have)\s+(?:a|any)\s+(?:significant\s+)?(?:role|influence|effect|impact)\b"
+    r"|\b(?:do|does|did)\s+not\s+(?:interact|affect|influence|matter|contribute)\b"
+    r"|\b(?:only|sole|single|exclusive)\s+(?:\w+\s+)?(?:factor|cause|mechanism|driver|determinant|agent)s?\b|\bsolely\b|\balone\b"
+    r"|\bregardless of\b|\bunder (?:any|all)\b|\bin all cases\b",
+    re.IGNORECASE,
+)
+
+
+def is_strawman_falsifier(text: str) -> bool:
+    """A falsifier that only rules out "no role at all" or "one factor alone", which no finding can show."""
+    return bool(_STRAWMAN_RE.search(text or ""))
+
+
 def vagueness(text: str) -> int:
     """How many distinct non-committal phrases the text leans on."""
     return len({m.group(0).lower() for m in _VAGUE_RE.finditer(text or "")})

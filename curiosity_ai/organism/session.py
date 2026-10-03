@@ -178,6 +178,7 @@ def compute_metrics(
         "beliefs_grounded": sum(e.grounded_new_beliefs for e in episodes),
         "beliefs_interpretive": sum(len(e.new_belief_ids) - e.grounded_new_beliefs for e in episodes),
         "beliefs_doubted": sum(len(e.doubted_belief_ids) for e in episodes),
+        "paper_doubts": sum(len(e.paper_doubt_ids) for e in episodes),
         "beliefs_reinforced": sum(len(e.reinforced_belief_ids) for e in episodes),
         "quotes_verified": verified,
         "quotes_rejected": rejected,
@@ -208,6 +209,7 @@ def compute_metrics(
         ) if debates else 0.0,
         "vague_answers": sum(1 for e in episodes if e.vague),
         "hedged_answers": sum(1 for e in episodes if e.hedged_answer),
+        "strawman_falsifiers": sum(1 for e in episodes if e.strawman_falsifier),
         "mean_on_topic": _mean([e.relevance for e in episodes]),
         "questions_set_aside": sum(len(e.set_aside_questions) for e in episodes),
         "questions_held_back": sum(len(e.held_back_questions) for e in episodes),
@@ -268,7 +270,8 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"({_counts(m['questions_born_by_trigger'])}); settled {m['questions_settled']}, dormant {m['questions_dormant']}, "
         f"judged unanswerable {m['questions_unanswerable']}.",
         f"- **Beliefs:** new {m['beliefs_new']} ({m['beliefs_grounded']} grounded in verified quotes, "
-        f"{m['beliefs_interpretive']} interpretations); earlier beliefs doubted {m['beliefs_doubted']}; reinforced {m['beliefs_reinforced']}.",
+        f"{m['beliefs_interpretive']} interpretations); earlier beliefs doubted {m['beliefs_doubted']} "
+        f"({m.get('paper_doubts', 0)} more doubts refused: no text contradicted those beliefs); reinforced {m['beliefs_reinforced']}.",
         f"- **Honesty:** {m['quotes_verified']} quotes verified in the sources, {m['quotes_rejected']} invented quotes caught "
         f"(fabrication rate {m['fabrication_rate']:.0%}).",
         f"- **Surprise:** mean {m['mean_surprise']:.2f} (first half {m['surprise_first_half']:.2f}, second half "
@@ -280,6 +283,7 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         _judge_line(m),
         f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "
         f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong and {m.get('hedged_answers', 0)} hedged (may, could); "
+        f"{m.get('strawman_falsifiers', 0)} would have been wrong only if nothing at all were at play; "
         f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified).",
         f"- **Staying on topic and in depth:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
         f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look.",

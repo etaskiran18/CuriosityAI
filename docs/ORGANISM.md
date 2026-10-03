@@ -141,7 +141,15 @@ support the claim at all. v9 adds the last four points below.
 * **Answers must be specific enough to be wrong.** An answer leaning on "complex", "multifaceted",
   "various factors" earns no confidence, and one that cannot say what would refute it gains at most 0.05.
   So does a hedged answer ("the plasmapause may play a role", "could potentially affect"): like a hedged
-  prediction, it survives any finding. The doubt belongs in the confidence, not in the wording.
+  prediction, it survives any finding. The doubt belongs in the confidence, not in the wording. So does
+  an answer that would be wrong only "if X played no role at all" or "if Y alone explained everything":
+  it only claims that something plays some part, and no finding can refute that (Popper: an existential
+  claim cannot be falsified). An answer that is itself a question is no answer; the old one stays.
+* **No paper doubt** (Peirce): a belief that rests on a quote the judge accepted is doubted only when the
+  judge accepted a contradiction in the same heartbeat. Without one, the doubt is refused and noted in the
+  diary. Interpretations (beliefs without a quote) can be doubted freely. A hedged belief ("X may play a
+  role") is not checked against a quote at all: almost any related quote supports it, so it stays an
+  interpretation.
   A theory of curiosity that vague is not adopted at reflection.
 * **Conceding is not winning**: after Wonder concedes an objection its confidence cannot rise, and
   after a revision it can rise by at most 0.10.

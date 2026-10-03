@@ -9,7 +9,8 @@ from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.judge import Judge, Pair, rating_of, verdict_of
 from curiosity_ai.organism.organism import Check, Comparison, _quotes_a_passage, _stance
 from curiosity_ai.organism.senses import Observation
-from curiosity_ai.organism.textutil import is_hedged, vagueness
+from curiosity_ai.organism.state import Evidence
+from curiosity_ai.organism.textutil import is_hedged, is_strawman_falsifier, vagueness
 
 from .organism_fakes import ScriptedLLM
 
@@ -331,3 +332,72 @@ def test_a_quoted_passage_that_cites_others_is_not_a_citation_from_memory():
     assert not _cites_from_memory('[S4] says: "the whistler intensity was measured by Inan et al., 1990 on board the satellite"')
     assert _cites_from_memory('As shown by Inan et al. (1990), whistlers precipitate electrons.')
     assert _cites_from_memory('Nakamura et al., "Whistler observations of the inner magnetosphere", show it.')
+
+
+# -- after the third research run ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("falsifier", [
+    "A study that demonstrates that neither resonance nor plasma instabilities play any role in the propagation.",
+    "Evidence showing that the interplay has no influence on space weather effects.",
+    "If the anisotropy instability were the only factor shaping the propagation.",
+    "A study that clearly demonstrates that lower band chorus whistlers are the sole cause of electron loss.",
+    "Plasma instabilities are always the dominant mechanism, regardless of conditions.",
+    "Evidence that the plasmapause's dynamics are solely determined by factors independent of lightning.",
+])
+def test_a_falsifier_that_only_denies_any_role_is_a_strawman(falsifier):
+    assert is_strawman_falsifier(falsifier)
+
+
+@pytest.mark.parametrize("falsifier", [
+    "Evidence showing that resonance is a primary mechanism under different plasmapause conditions.",
+    "Evidence showing that the interplay dominates under low-density and isotropic plasma conditions.",
+    "Whistler arrival times at L=3 lag the density model by more than 0.5 s.",
+    "If densities inverted from whistlers differ from in situ densities by more than 20 percent.",
+])
+def test_a_falsifier_that_names_a_finding_is_not(falsifier):
+    assert not is_strawman_falsifier(falsifier)
+
+
+def test_an_answer_wrong_only_if_nothing_were_at_play_gains_little(config):
+    config.organism.evidence_ceiling_base = 1.0
+    strawman = "Evidence showing that wonder plays no role at all in starting philosophical inquiry."
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=settle(would_be_wrong_if=strawman)))
+    ep = org.heartbeat()
+    assert ep.strawman_falsifier and ep.confidence == pytest.approx(ep.prior_confidence + 0.05)
+    assert "nothing at all, or one thing alone" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_an_answer_that_is_a_question_is_no_answer(config):
+    question = "Can we infer, from the available evidence, when wonder turns into inquiry?"
+    ep = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(answer=question))).heartbeat()
+    assert ep.answer == "Wonder is the feeling that starts philosophical inquiry."  # its answer from before looking
+
+
+def test_a_hedged_belief_stays_an_interpretation(config):
+    learned = [{"belief": "Wonder may be the feeling that starts philosophy", "source": "S1"}]
+    org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(learned=learned)))
+    ep = org.heartbeat()
+    belief = org.state.beliefs[ep.new_belief_ids[0]]
+    assert belief.interpretive and belief.confidence == pytest.approx(0.35)
+
+
+def test_a_belief_resting_on_a_text_yields_only_to_a_contradiction(config):
+    """Peirce: no paper doubt. A 7B model doubted the person's own article 36 times while nothing contradicted it."""
+    config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
+
+    def live(contradict_for_real: bool):
+        llm = ScriptedLLM(contradict_for_real=contradict_for_real, settle=settle(contradicts=["B1"]))
+        org = CuriosityOrganism(config, llm=llm)
+        quote = Evidence(citation="[BOOK:Kant]", quote="human reason is burdened by questions it cannot dismiss", source_title="Kant")
+        belief = org.state.add_belief("Reason can answer every question that it raises.", confidence=0.6, evidence=[quote])
+        return org, belief, org.heartbeat()
+
+    org, belief, ep = live(contradict_for_real=False)
+    assert ep.contradicted == 0 and ep.doubted_belief_ids == [] and ep.paper_doubt_ids == [belief.id]
+    assert org.state.beliefs[belief.id].status == "held" and org.state.beliefs[belief.id].confidence == pytest.approx(0.6)
+    assert "gives way only to a text" in (org.home / "diary.md").read_text(encoding="utf-8")
+    config.organism.home += "-contradicted"
+    org, belief, ep = live(contradict_for_real=True)
+    assert ep.contradicted == 1 and ep.doubted_belief_ids == [belief.id]
+

@@ -63,6 +63,7 @@ from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Tem
 from .textutil import (
     clip,
     is_hedged,
+    is_strawman_falsifier,
     jaccard,
     keywords_of,
     one_line,
@@ -679,7 +680,7 @@ class CuriosityOrganism:
             probability = self.oc.default_probability if probability is None else min(0.95, max(0.05, probability))
             predictions.append(Prediction(one_line(claim, 300), author, probability, is_hedged(claim)))
         return Anticipation(
-            answer=one_line(_as_str(data.get("answer")), 600),
+            answer=_statement(one_line(_as_str(data.get("answer")), 600)),
             confidence=_confidence(data.get("confidence")),
             predictions=predictions[:4],
         )
@@ -895,7 +896,8 @@ class CuriosityOrganism:
             "or could: put your doubt into the confidence\n"
             "- would_be_wrong_if: one sentence: what finding would show this answer is wrong\n"
             "- confidence: 0.0 to 1.0. Raise it only with support; lower it if you were contradicted or the skeptic found a real weakness\n"
-            "- learned: 0 to 3 new beliefs, one sentence each, each with the source label (S1, S2, ...) whose quote supports it\n"
+            "- learned: 0 to 3 new beliefs, one plain sentence each (no may or might), each with the source label (S1, S2, ...) "
+            "whose quote supports it\n"
             "- contradicts: ids of the earlier beliefs above (like B2) that the evidence contradicts; [] if none\n"
             "- new_questions: 0 to 2 specific new questions that a paper could answer, born from a surprise, a "
             f"contradiction, a gap, or the skeptic's objection, staying close to this question and to {self.state.topic.title}\n"
@@ -932,6 +934,7 @@ class CuriosityOrganism:
         answer = settlement.answer or anticipation.answer or q.answer
         vague = vagueness(answer) >= oc.vague_threshold
         hedged = not vague and is_hedged(answer)
+        strawman = bool(settlement.falsifier) and is_strawman_falsifier(settlement.falsifier)
 
         # Confidence moves in bounded steps, cannot grow without evidence, and can never
         # rise above what the confirmations the judge accepted so far allow.
@@ -947,9 +950,10 @@ class CuriosityOrganism:
             delta = min(delta, 0.10)  # a revised answer has not been tested yet
         if vague:
             delta = min(delta, 0.0)  # an answer too vague to be wrong earns no confidence
-        elif hedged or not settlement.falsifier:
+        elif hedged or strawman or not settlement.falsifier:
             # "X may play a role" survives any finding, like a hedged prediction; so does an answer that
-            # cannot say what would refute it. Doubt belongs in the confidence, not in the wording.
+            # cannot say what would refute it, or would be refuted only if X played no role at all.
+            # Doubt belongs in the confidence, not in the wording.
             delta = min(delta, 0.05)
         new_confidence = clamp(prior_confidence + delta, 0.02, 0.98)
         ceiling = min(0.95, oc.evidence_ceiling_base + oc.evidence_ceiling_per_support * (support + sum(v.support for v in q.visits)))
@@ -975,6 +979,8 @@ class CuriosityOrganism:
         learned = settlement.learned[:3]
         belief_pairs: list[tuple[int, Pair, Observation]] = []
         for i, item in enumerate(learned):
+            if is_hedged(item.belief):
+                continue  # "X may play a role" is supported by almost any related quote: it stays an interpretation
             obs = by_label.get(item.source or "")
             candidates = quotes.get(item.source or "", []) if obs else []
             if candidates:
@@ -1028,12 +1034,19 @@ class CuriosityOrganism:
             if belief_id not in q.related_beliefs:
                 q.related_beliefs.append(belief_id)
 
-        # Contradictions: only beliefs that were actually shown to the model can be doubted.
+        # Contradictions: only beliefs that were actually shown to the model can be doubted, and a belief
+        # that rests on a quote only when the judge accepted a contradiction in this heartbeat. A 7B model
+        # doubted beliefs 36 times in an hour, the person's own article among them, while the texts
+        # contradicted nothing: Peirce's "paper doubt", not the real doubt a surprising fact brings.
         doubted: list[str] = []
+        paper_doubts: list[str] = []
         shown = {b.id for b in related}
         for bid in settlement.contradicts:
             belief = st.beliefs.get(bid)
             if belief is None or bid not in shown or bid in new_beliefs or bid in reinforced:
+                continue
+            if not belief.interpretive and contradicted == 0:
+                paper_doubts.append(bid)
                 continue
             belief.confidence = clamp(belief.confidence - 0.15)
             belief.status = "retracted" if belief.confidence < 0.15 else "doubted"
@@ -1121,12 +1134,14 @@ class CuriosityOrganism:
             falsifier=settlement.falsifier,
             vague=vague,
             hedged_answer=hedged,
+            strawman_falsifier=strawman,
             confidence=new_confidence,
             insight=settlement.insight,
             new_belief_ids=new_beliefs,
             grounded_new_beliefs=sum(1 for bid in new_beliefs if st.beliefs[bid].evidence),
             reinforced_belief_ids=reinforced,
             doubted_belief_ids=doubted,
+            paper_doubt_ids=paper_doubts,
             new_question_ids=born,
             reawakened_question_ids=woke,
             set_aside_questions=set_aside,
@@ -1724,6 +1739,11 @@ def _trigger(value: Any) -> str:
     return "gap"
 
 
+def _statement(answer: str) -> str:
+    """An answer that is a question ("Can we infer thresholds ...?") answers nothing: the old answer stays."""
+    return "" if answer.rstrip().endswith("?") else answer
+
+
 def _parse_settlement(data: dict[str, Any]) -> Settlement:
     learned: list[Learned] = []
     for item in _as_list(data.get("learned")):
@@ -1752,7 +1772,7 @@ def _parse_settlement(data: dict[str, Any]) -> Settlement:
     if falsifier.lower().startswith(("one sentence", "what finding")) or len(falsifier.split()) < 4:
         falsifier = ""  # the schema hint echoed back, or nothing that could be checked
     return Settlement(
-        answer=one_line(_as_str(data.get("answer")), 800),
+        answer=_statement(one_line(_as_str(data.get("answer")), 800)),
         falsifier=falsifier,
         confidence=_confidence(data.get("confidence")),
         learned=learned,
