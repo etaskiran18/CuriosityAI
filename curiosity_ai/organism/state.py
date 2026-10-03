@@ -182,6 +182,7 @@ class Episode(BaseModel):
     reawakened_question_ids: list[str] = Field(default_factory=list)
     set_aside_questions: list[str] = Field(default_factory=list)  # proposed, but off the topic
     held_back_questions: list[str] = Field(default_factory=list)  # proposed without a reason yet (see organism._births)
+    unknowable_questions: list[str] = Field(default_factory=list)  # about things nobody has identified: no text can answer
     relevance: float = 1.0  # how on topic the question of this heartbeat was
     status_after: str = "open"
     policy: str = "curiosity"

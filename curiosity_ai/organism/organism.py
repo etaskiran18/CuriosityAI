@@ -62,6 +62,7 @@ from .senses import Observation, Senses, write_inbox_item
 from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Temperament, Topic, Visit, load_mind, save_mind
 from .textutil import (
     clip,
+    asks_about_the_unknown,
     is_hedged,
     is_influence_only,
     is_non_answer,
@@ -907,8 +908,9 @@ class CuriosityOrganism:
                 entry["evidence"] = "quote" if _quotes_a_passage(entry["text"], observations) else ""
             elif turn > 0:
                 stance, rest = _stance(entry["text"])
-                if stance:
-                    entry["stance"], entry["text"] = stance, rest or entry["text"]
+                if stance and rest.strip():
+                    entry["stance"], entry["text"] = stance, rest
+                # a bare "REVISE" with nothing after it says nothing: no stance is taken from it
             transcript.append(entry)
         return transcript
 
@@ -1054,6 +1056,8 @@ class CuriosityOrganism:
         q.news = False  # whatever was fetched for it has now been read
 
         proposals = [nq for nq in settlement.new_questions if not self._same_question(nq.text, q.text)][:3]
+        unknowable = [one_line(nq.text, 200) for nq in proposals if asks_about_the_unknown(nq.text)]
+        proposals = [nq for nq in proposals if not asks_about_the_unknown(nq.text)]
         ratings: list[float | None] = []
         if self.judge is not None and proposals:
             _, ratings = self.judge.judge(
@@ -1212,6 +1216,7 @@ class CuriosityOrganism:
             reawakened_question_ids=woke,
             set_aside_questions=set_aside,
             held_back_questions=held_back,
+            unknowable_questions=unknowable,
             relevance=chosen.relevance,
             status_after=q.status,
             policy=oc.policy,
@@ -1472,7 +1477,15 @@ class CuriosityOrganism:
             f"confidence {e.prior_confidence:.2f} -> {e.confidence:.2f}" + (f"; insight: {one_line(e.insight, 160)}" if e.insight else "")
             for e in episodes
         ) or "- (no episodes yet)"
-        strongest = sorted(st.held_beliefs(), key=lambda b: -b.confidence)[:6]
+        held = st.held_beliefs()
+        grounded = sorted((b for b in held if not b.interpretive), key=lambda b: -b.confidence)[:6]
+        guesses = sorted((b for b in held if b.interpretive), key=lambda b: -b.confidence)[:4]
+        supported = sorted((q for q in st.questions.values() if q.support and q.answer), key=lambda q: -len(q.support))[:6]
+        support_lines = "\n".join(
+            f'- {q.id} "{one_line(q.text, 120)}": {one_line(q.answer, 220)} (supported by {len(q.support)} quote(s), '
+            f'e.g. "{one_line(q.support[-1].quote, 140)}")'
+            for q in supported
+        ) or "- none yet: no answer of yours is supported by a quote the judge accepted"
         current = self._understanding()
         user = (
             f"Your main topic: {st.topic.title}\n\n"
@@ -1483,8 +1496,11 @@ class CuriosityOrganism:
             f"closeness to the main topic {vitals.on_topic:.2f}.\n\n"
             f"Your self-regulation diagnosed: {diagnosis['name']} - {diagnosis['meaning']} ({diagnosis['source']})\n\n"
             f"Your current understanding of {self.persona.theory}: {current}\n\n"
-            f"Your most confident beliefs:\n{self._format_beliefs(strongest)}\n\n"
-            "Reflect honestly, as an inquirer looking at its own habits."
+            f"What the texts support so far (your answers with quotes the judge accepted):\n{support_lines}\n\n"
+            f"Your beliefs that rest on quotes:\n{self._format_beliefs(grounded)}\n\n"
+            f"Your guesses (beliefs no quote supports yet):\n{self._format_beliefs(guesses)}\n\n"
+            "Reflect honestly, as an inquirer looking at its own habits. Build your theory from what the texts "
+            "support; you may add one guess, but call it a guess. Your focus question must be one a paper could answer."
         )
         data = self._json(self._sys("REFLECT"), user, P.REFLECT_SCHEMA, temperature=0.4, errors=errors, step="reflect")
         understanding = one_line(
@@ -1493,8 +1509,10 @@ class CuriosityOrganism:
         reflection = one_line(_as_str(data.get("reflection")), 900)
         focus_text = _as_str(data.get("focus_question"))
         kept_old = ""
-        if understanding and vagueness(understanding) >= self.oc.vague_threshold:
-            kept_old, understanding = understanding, ""  # too vague to be wrong: keep the theory it had
+        if understanding and (vagueness(understanding) >= self.oc.vague_threshold or is_non_answer(understanding)):
+            kept_old, understanding = understanding, ""  # too vague to be wrong, or only "not yet known": keep the theory it had
+        if asks_about_the_unknown(focus_text):
+            focus_text = ""  # about things nobody has identified: no paper can answer it
         if understanding:
             if self.research:
                 st.self_model.understanding_of_topic = understanding

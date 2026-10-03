@@ -6,7 +6,7 @@ import pytest
 from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.drive import DriveSettings, Vitals, diagnose, read_drive, regulate, topic_factor
 from curiosity_ai.organism.state import Question, Temperament, Visit
-from curiosity_ai.organism.textutil import token_set, topic_relevance
+from curiosity_ai.organism.textutil import asks_about_the_unknown, token_set, topic_relevance
 
 from .organism_fakes import ScriptedLLM
 
@@ -196,3 +196,62 @@ def test_new_texts_bring_it_back_to_the_question():
     back = read_drive(q, t, 6, 0, s)
     assert pause.refractory == 0.5 and back.refractory == 0.0
     assert back.news == pytest.approx(0.25) and back.total > pause.total * 2
+
+
+# -- keeping guesses from taking over ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("question, unknowable", [
+    ("How do undiscovered plasma instabilities interact with radiation-belt particles?", True),
+    ("What other yet-to-be-identified structures might influence the propagation of whistlers?", True),
+    ("What are the specific roles of lesser-known magnetospheric structures in whistler propagation?", True),
+    ("How can we distinguish the influence of unidentified magnetospheric structures?", True),
+    ("What is the evidence for overlooked structures or frequency ranges?", True),
+    ("How does the plasmapause guide lightning-generated whistlers?", False),
+    ("Why does a known density notch duct whistlers at 4 to 8 kHz?", False),
+])
+def test_a_question_about_things_nobody_has_identified(question, unknowable):
+    assert asks_about_the_unknown(question) is unknowable
+
+
+def test_questions_no_text_can_answer_are_not_asked(config):
+    unknown = {"question": "How do undiscovered kinds of wonder shape philosophy?", "trigger": "surprise", "importance": 0.9}
+    org = CuriosityOrganism(config, llm=proposing([unknown]))
+    ep = org.heartbeat()
+    assert ep.new_question_ids == [] and ep.unknowable_questions == [unknown["question"]]
+    assert "which no text can answer" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_reflection_builds_on_what_the_texts_support(config):
+    class Reflecting(ScriptedLLM):
+        def json_chat(self, system, user, schema_hint, **kw):
+            if "[REFLECT]" in system:
+                self.calls.append("REFLECT")
+                self.prompts["REFLECT"] = user
+                return {"understanding": "What wonder is remains unclear and is not yet fully understood.", "reflection": "r",
+                        "focus_question": "What undiscovered feelings come before wonder?"}
+            return super().json_chat(system, user, schema_hint, **kw)
+
+    llm = Reflecting()
+    org = CuriosityOrganism(config, llm=llm)
+    before = org.state.self_model.understanding_of_curiosity
+    org.heartbeat()
+    org.reflect()
+    prompt = llm.prompts["REFLECT"]
+    assert "What the texts support so far" in prompt and "Your guesses (beliefs no quote supports yet)" in prompt
+    assert org.state.self_model.understanding_of_curiosity == before  # "not yet understood" is no theory
+    assert not any(q.trigger == "reflection" for q in org.state.questions.values())  # no paper can answer the focus
+
+
+def test_a_bare_stance_word_is_no_stance(config):
+    class Terse(ScriptedLLM):
+        def chat(self, system, user, **kw):
+            if "[WONDER]" in system and "Begin your reply with exactly one word" in user:
+                self._enter(system, user)
+                return "REVISE"
+            return super().chat(system, user, **kw)
+
+    ep = CuriosityOrganism(config, llm=Terse()).heartbeat()
+    wonder = [t for t in ep.dialogue if t["voice"] == "Wonder"]
+    assert len(wonder) >= 2 and "stance" not in wonder[-1] and ep.stance == ""
+

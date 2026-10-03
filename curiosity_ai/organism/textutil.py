@@ -254,6 +254,24 @@ _NON_ANSWER_RE = re.compile(
 )
 
 
+# "How do undiscovered plasma instabilities interact with ...?" or "What other yet-to-be-identified structures
+# ...?" asks about things nobody has found, which no paper can answer. A 7B model kept asking such questions
+# about "lesser-known structures E1, E2, E3" (its own prediction labels) and "unidentified structures".
+_UNKNOWN_RE = re.compile(
+    r"\b(?:undiscovered|unidentified|undetected|unrecognized|unrecognised|lesser[- ]known|overlooked"
+    r"|yet[- ]to[- ]be[- ](?:identified|discovered|detected|determined|found|recognized)"
+    r"|not\s+yet\s+(?:identified|discovered|detected|known)"
+    r"|unknown\s+(?:\w+\s+){0,2}(?:structures?|mechanisms?|factors?|instabilit(?:y|ies)|process(?:es)?|phenomena|waves?|modes?|propert(?:y|ies))"
+    r"|(?:hidden|unseen)\s+(?:\w+\s+)?(?:factors?|mechanisms?|structures?))\b",
+    re.IGNORECASE,
+)
+
+
+def asks_about_the_unknown(question: str) -> bool:
+    """A question about things nobody has identified yet, which no text can answer."""
+    return bool(_UNKNOWN_RE.search(question or ""))
+
+
 def is_non_answer(text: str) -> bool:
     """An answer that only says the question is still open."""
     return bool(_NON_ANSWER_RE.search(text or ""))

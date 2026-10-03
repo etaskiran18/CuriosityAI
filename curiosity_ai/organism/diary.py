@@ -158,6 +158,8 @@ class Diary:
             lines.append(f"- Set aside as off my topic: {text}")
         for text in ep.held_back_questions:
             lines.append(f"- Kept for a second look (I will ask it if the gap is still there): {text}")
+        for text in ep.unknowable_questions:
+            lines.append(f"- Not asked: it is about things nobody has identified yet, which no text can answer: {text}")
         if ep.acquisitions:
             lines.append(f"- My books said little here, so I went to the library and brought back: {'; '.join(ep.acquisitions)}")
         if ep.library_misses:

@@ -215,6 +215,7 @@ def compute_metrics(
         "mean_on_topic": _mean([e.relevance for e in episodes]),
         "questions_set_aside": sum(len(e.set_aside_questions) for e in episodes),
         "questions_held_back": sum(len(e.held_back_questions) for e in episodes),
+        "questions_unknowable": sum(len(e.unknowable_questions) for e in episodes),
         "dialogue_unverified_citations": sum(1 for e in episodes for t in e.dialogue if t.get("citations") == "unverified"),
         "library_visits": sum(1 for e in episodes if e.acquisitions or e.library_misses or e.library_owned or e.library_busy or e.library_rejected),
         "acquisitions": len(acquired),
@@ -289,7 +290,8 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"{m.get('strawman_falsifiers', 0)} would have been wrong only if nothing at all were at play; "
         f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified).",
         f"- **Staying on topic and in depth:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
-        f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look.",
+        f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look, "
+        f"{m.get('questions_unknowable', 0)} not asked because they were about things nobody has identified.",
         f"- **Library:** {m['library_visits']} visits, {m['acquisitions']} texts acquired ({_counts(m['acquisitions_by_kind'])}); "
         f"{m['library_rejected']} found but off topic; {m['library_busy']} searches impossible because a source was busy.",
         f"- **Self-regulation:** {_counts({DIAGNOSES.get(k, {}).get('name', k): v for k, v in m['diagnoses'].items()}) or 'no reflection in this session'}.",
