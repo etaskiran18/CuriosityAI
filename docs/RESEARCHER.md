@@ -103,8 +103,8 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 * an answer is held only as firmly as the quotes that support *it* allow: a new answer does not inherit
   the confidence of the old one, and an answer no quote supports stays at 0.5 or below;
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
-* texts it fetches must not be unrelated to the question, as the judge reads their title and beginning
-  (background articles are kept);
+* a paper it fetches must be useful for the question, as the judge reads its title and abstract;
+  encyclopedia articles count as background and may be only loosely related;
 * texts about another world, star or device than your topic (Venus, a magnetar, a tokamak) are refused;
 * the debate may cite only the passages it read; references from memory are marked unverified;
 * at most one new question per heartbeat: depth before breadth; questions about things nobody has

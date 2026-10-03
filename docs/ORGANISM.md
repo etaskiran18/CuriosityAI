@@ -279,9 +279,10 @@ A curious reader whose books fall silent goes to the library. With `--web` (or
      API key in `SEMANTIC_SCHOLAR_API_KEY`; arXiv needs no key (one request every three seconds).
    * **Relevance check**: a found text is kept only if it shares at least two words with the question and
      the topic, beyond the words searched for ("Curiosity" the Mars rover shares only its name), and the
-     judge, reading its title and beginning, does not rate it unrelated ("Magnetosphere of Saturn"
-     shares many words with a question about Earth's inner magnetosphere). Background such as
-     "Plasmasphere", which a small judge calls only loosely related, is kept. A title about another
+     judge, reading its title and beginning, rates it: a paper must be "useful" (2 of 3), while an
+     encyclopedia article or a classic book is background and may be "loosely related" (1 of 3), since
+     a small judge calls even "Plasmasphere" only that. (mistral rated a solar-wind paper 1 while
+     writing that it was "not in the Earth's magnetosphere".) A title about another
      world, an astrophysical object or a laboratory device (Venus, Saturn, a magnetar, a tokamak, "in
      the solar wind") is refused unless the question or the topic names it: a small judge had let in
      papers on whistlers at Venus, in tokamaks and in magnetar magnetospheres.
