@@ -206,4 +206,14 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
   program's key ("[DOC:Unknown:NUMERICAL_SIMULATIONS_OF_THE_EFF:chunk0:L7-L27]"). And when Ollama fails for
   a moment (it answered one call with an error after the process running the model was killed), the call
   is tried again twice, 5 and 10 seconds later.
+* **A last check with all of the above** (mistral 7B, 3 heartbeats, same papers and stand-in draft): 2 of 11
+  predictions were hedged (in the run before, 10 of 15), the judge agreed with 6 of 8 claims (before, 5 of
+  11), and nothing crashed. Too short to measure anything, but it showed four more faults, now fixed: a
+  belief is no longer doubted in a heartbeat in which a quote the judge accepted says much the same
+  (mistral retracted "the interaction between electrons and the primary whistler wave packet plays a
+  role ..." while the judge was accepting "the electrons interacted with the primary whistler wave
+  packet", and a "contradiction" question was born from that doubt); predictions name only the library's
+  authors, not words from its titles ("Thunderstorms" became an author); "Singh et al. (1992)" in the debate
+  is not marked as invented when a passage it read cites Singh itself; and the theory says "(a guess)"
+  instead of "(guess: [B4])".
 
