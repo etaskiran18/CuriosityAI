@@ -80,7 +80,8 @@ class Diary:
             lines.append("")
             for i, pr in enumerate(ep.predictions, start=1):
                 who = f"{pr.get('author')}: " if pr.get("author") and pr.get("author", "").lower() not in pr.get("claim", "").lower() else ""
-                hedge = " *(hedged: it could never be wrong)*" if pr.get("hedged") else ""
+                hedge = " *(hedged: it could never be wrong)*" if pr.get("hedged") else (
+                    " *(says only that something has an influence: no text could contradict it)*" if pr.get("weak") else "")
                 lines.append(f"- E{i} I predicted (p={pr.get('probability', 0):.2f}): {who}{pr.get('claim', '')}{hedge}")
         elif ep.expectations:
             lines.append("")

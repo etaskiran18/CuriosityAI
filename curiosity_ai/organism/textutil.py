@@ -193,6 +193,33 @@ def is_hedged(text: str) -> bool:
     return bool(_HEDGE_RE.search(text or ""))
 
 
+# "The plasmapause significantly influences the propagation of whistlers" names no direction, size or
+# condition, so whatever a paper reports agrees with it: no text can contradict it. Half of a 7B model's
+# predictions in an hour were of this kind, and the texts contradicted none of its 192 predictions.
+_INFLUENCE_RE = re.compile(
+    r"\b(?:plays?|playing)\s+(?:a|an)\s+(?:\w+\s+){0,2}role\b"
+    r"|\b(?:influence[sd]?|influencing|affect(?:s|ed|ing)?|impact(?:s|ed|ing)?|shap(?:e|es|ed|ing)|contribut(?:e|es|ed|ing)\s+to"
+    r"|interact(?:s|ed|ing)?\s+with|(?:is|are)\s+(?:closely\s+)?(?:related|linked|connected|associated)\s+(?:to|with)"
+    r"|depend(?:s|ent)?\s+on|var(?:y|ies)\s+with|(?:is|are)\s+(?:important|crucial|essential|key|significant)\s+(?:for|to|in))\b"
+    r"|\bha(?:s|ve)\s+(?:a|an)\s+(?:\w+\s+){0,2}(?:effect|impact|influence)\s+on\b",
+    re.IGNORECASE,
+)
+# What makes such a claim risky: a direction, a size, a comparison, a condition, or a mechanism.
+_RISK_RE = re.compile(
+    r"\d|%|\b(?:increas\w*|decreas\w*|higher|lower|more|less|fewer|greater|smaller|larger|faster|slower|earlier|later|above"
+    r"|below|exceed\w*|before|after|only|never|always|not|no|than|instead|whereas|unless|except|stronger|weaker|reduc\w*"
+    r"|enhanc\w*|suppress\w*|amplif\w*|attenuat\w*|trap\w*|block\w*|prevent\w*|confin\w*|guid\w*|duct\w*|reflect\w*"
+    r"|refract\w*|absorb\w*|dominat\w*|mostly|mainly|primarily|rarely|majority|most|outward|inward|toward|away|along|across"
+    r"|inside|outside|beyond)\b",
+    re.IGNORECASE,
+)
+
+
+def is_influence_only(claim: str) -> bool:
+    """A claim that only says one thing influences another, with no direction, size, condition or mechanism."""
+    return bool(_INFLUENCE_RE.search(claim or "")) and not _RISK_RE.search(claim or "")
+
+
 # "Would be wrong if X played no role at all" or "...if Y alone explained everything": such a falsifier
 # shows that the answer only claims that something plays some part. That survives every finding (an
 # existential claim cannot be falsified, as Popper noted), so it is not a real test. Seen in 31 of 53

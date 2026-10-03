@@ -10,7 +10,7 @@ from curiosity_ai.organism.judge import Judge, Pair, rating_of, verdict_of
 from curiosity_ai.organism.organism import Check, Comparison, _quotes_a_passage, _stance
 from curiosity_ai.organism.senses import Observation
 from curiosity_ai.organism.state import Evidence
-from curiosity_ai.organism.textutil import is_hedged, is_non_answer, is_strawman_falsifier, lexically_related, token_set, vagueness
+from curiosity_ai.organism.textutil import is_hedged, is_influence_only, is_non_answer, is_strawman_falsifier, lexically_related, token_set, vagueness
 
 from .organism_fakes import ScriptedLLM
 
@@ -455,4 +455,48 @@ def test_a_belief_its_quote_does_not_mention_stays_an_interpretation(config):
     ep = org.heartbeat()
     assert org.state.beliefs[ep.new_belief_ids[0]].interpretive
     assert not any(j["kind"] == "belief" for j in ep.judgments)  # the pair never reached the judge
+
+
+# -- predictions a text could contradict ----------------------------------------------------
+
+
+@pytest.mark.parametrize("claim", [
+    "The plasmapause significantly influences the propagation of lightning-generated waves in the inner magnetosphere.",
+    "The frequency of lightning-generated waves plays a crucial role in determining their pathways in the inner magnetosphere.",
+    "Ionospheric plasma density affects the specific pathways of lightning-generated waves in the inner magnetosphere.",
+    "The magnetic field strength plays a role in the propagation of lightning-generated waves in the inner magnetosphere.",
+])
+def test_a_claim_that_only_names_an_influence_cannot_be_contradicted(claim):
+    assert is_influence_only(claim)
+
+
+@pytest.mark.parametrize("claim", [
+    "The plasmapause plays a crucial role in the refraction and reflection of lightning-generated waves.",
+    "Higher plasma density slows the group velocity of whistlers.",
+    "The UM propagation mode is more dominant under certain plasmapause conditions.",
+    "Whistlers are ducted along field lines inside the plasmasphere but not outside it.",
+    "Wonder is the feeling of a philosopher.",
+])
+def test_a_claim_with_a_direction_size_or_mechanism_can(claim):
+    assert not is_influence_only(claim)
+
+
+def test_predictions_that_only_name_an_influence_are_asked_again(config):
+    llm = ScriptedLLM(weak="first")
+    ep = CuriosityOrganism(config, llm=llm).heartbeat()
+    assert llm.calls.count("ANTICIPATE") == 2
+    assert not any(p["weak"] or p["hedged"] for p in ep.predictions)
+    retry_prompt = [prompt for step, prompt in llm.history if step == "ANTICIPATE"][1]
+    assert "only say that one thing influences another" in retry_prompt
+
+
+def test_confirming_a_prediction_that_could_not_fail_is_no_support(config):
+    """Popper: only a prediction that could have failed is tested when it comes true."""
+    config.organism.evidence_ceiling_base = 1.0
+    org = CuriosityOrganism(config, llm=ScriptedLLM(weak="always", stance="DEFEND", settle=settle()))
+    ep = org.heartbeat()
+    assert ep.predictions[0]["weak"] and ep.checks[0]["status"] == "confirmed"
+    assert org.state.questions["Q1"].visits[-1].support == 0
+    assert ep.confidence <= ep.prior_confidence + 0.05 + 1e-9
+    assert "no text could contradict it" in (org.home / "diary.md").read_text(encoding="utf-8")
 

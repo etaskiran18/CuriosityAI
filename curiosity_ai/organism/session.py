@@ -192,6 +192,7 @@ def compute_metrics(
         "surprise_change_on_revisits": _mean([eps[-1].prediction_error - eps[0].prediction_error for eps in revisits]),
         "predictions": len(predictions),
         "predictions_hedged": hedged,
+        "predictions_weak": sum(1 for pr in predictions if pr.get("weak")),
         "hedged_rate": round(hedged / len(predictions), 3) if predictions else 0.0,
         "predictions_confirmed": statuses.get("confirmed", 0),
         "predictions_contradicted": statuses.get("contradicted", 0),
@@ -278,7 +279,8 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"{m['surprise_second_half']:.2f}); the texts addressed {m['mean_informativeness']:.0%} of its expectations on average.",
         f"- **Learning:** questions revisited: {m['revisited_questions']}; on them, surprise changed by "
         f"{m['surprise_change_on_revisits']:+.2f} from first to last visit (negative means it predicts the texts better).",
-        f"- **Predictions:** {m['predictions']} made, {m['predictions_hedged']} of them hedged ({m['hedged_rate']:.0%}); "
+        f"- **Predictions:** {m['predictions']} made, {m['predictions_hedged']} of them hedged ({m['hedged_rate']:.0%}) and "
+        f"{m.get('predictions_weak', 0)} saying only that something has an influence; "
         f"the texts confirmed {m['predictions_confirmed']} and contradicted {m['predictions_contradicted']}; {_brier_text(m)}.",
         _judge_line(m),
         f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "

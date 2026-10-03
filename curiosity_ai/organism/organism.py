@@ -63,6 +63,7 @@ from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Tem
 from .textutil import (
     clip,
     is_hedged,
+    is_influence_only,
     is_non_answer,
     is_strawman_falsifier,
     lexically_related,
@@ -101,6 +102,12 @@ class Prediction:
     author: str = ""
     probability: float = 0.7
     hedged: bool = False
+    weak: bool = False  # only says that something influences something: no text could contradict it
+
+    @property
+    def risky(self) -> bool:
+        """Could a passage have proved it wrong? Only then is its confirmation a test passed (Popper)."""
+        return not (self.hedged or self.weak)
 
     @property
     def text(self) -> str:
@@ -652,18 +659,25 @@ class CuriosityOrganism:
         )
         data = self._json(self._sys("ANTICIPATE"), user, P.ANTICIPATE_SCHEMA, temperature=0.4, errors=errors, step="anticipate")
         anticipation = self._parse_anticipation(data)
-        hedged = [i for i, p in enumerate(anticipation.predictions, start=1) if p.hedged]
-        if self.oc.prediction_retry and hedged:
-            listed = "\n".join(f"E{i}: {anticipation.predictions[i - 1].claim}" for i in hedged)
-            retry = user + (
-                f"\n\nYou first wrote these as hedged guesses, which no text could ever prove wrong:\n{listed}\n\n"
-                "Write all your predictions again as definite claims, without may, might, could or possibly. "
-                "Put your doubt into the probability instead."
+        hedged = [p for p in anticipation.predictions if p.hedged]
+        weak = [p for p in anticipation.predictions if p.weak]
+        if self.oc.prediction_retry and (hedged or weak):
+            parts = []
+            if hedged:
+                parts.append("These are hedged guesses (may, might, could), which no text could ever prove wrong:\n"
+                             + "\n".join(f"- {p.claim}" for p in hedged))
+            if weak:
+                parts.append("These only say that one thing influences another, which every text agrees with:\n"
+                             + "\n".join(f"- {p.claim}" for p in weak))
+            retry = user + "\n\n" + "\n\n".join(parts) + (
+                "\n\nWrite all your predictions again as definite claims a passage could contradict: say which way, how "
+                "much, or under which condition, or name the mechanism. Do not write may, might, could or possibly; put "
+                "your doubt into the probability instead."
             )
             again = self._parse_anticipation(
                 self._json(self._sys("ANTICIPATE"), retry, P.ANTICIPATE_SCHEMA, temperature=0.3, errors=errors, step="anticipate-retry")
             )
-            if again.predictions and sum(p.hedged for p in again.predictions) < len(hedged):
+            if again.predictions and sum(not p.risky for p in again.predictions) < len(hedged) + len(weak):
                 again.answer = again.answer or anticipation.answer
                 again.confidence = anticipation.confidence if again.confidence is None else again.confidence
                 anticipation = again
@@ -691,7 +705,8 @@ class CuriosityOrganism:
             if author.lower().startswith(("who will say", "one author")):
                 author = ""
             probability = self.oc.default_probability if probability is None else min(0.95, max(0.05, probability))
-            predictions.append(Prediction(one_line(claim, 300), author, probability, is_hedged(claim)))
+            hedged = is_hedged(claim)
+            predictions.append(Prediction(one_line(claim, 300), author, probability, hedged, not hedged and is_influence_only(claim)))
         return Anticipation(
             answer=_statement(one_line(_as_str(data.get("answer")), 600)),
             confidence=_confidence(data.get("confidence")),
@@ -942,7 +957,11 @@ class CuriosityOrganism:
         error, informativeness = comparison.scores(probabilities)
         quotes = comparison.quotes_by_source()
         by_label = {o.label: o for o in observations}
-        support, contradicted = comparison.count("confirmed"), comparison.count("contradicted")
+        contradicted = comparison.count("contradicted")
+        # Only a prediction that could have failed is tested by a confirmation (Popper): that "X influences Y"
+        # came true says nothing, since no text could have shown otherwise.
+        risky = [p.risky for p in anticipation.predictions]
+        support = sum(1 for c in comparison.checks if c.status == "confirmed" and 1 <= c.expectation <= len(risky) and risky[c.expectation - 1])
         stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
         answer = settlement.answer or anticipation.answer or q.answer
         # "Further research is needed to uncover X" says that the question is open, not what the answer is.
@@ -1147,7 +1166,7 @@ class CuriosityOrganism:
             prior_confidence=prior_confidence,
             expectations=anticipation.expectations,
             predictions=[
-                {"claim": p.claim, "author": p.author, "probability": p.probability, "hedged": p.hedged}
+                {"claim": p.claim, "author": p.author, "probability": p.probability, "hedged": p.hedged, "weak": p.weak}
                 for p in anticipation.predictions
             ],
             checks=[c.__dict__ for c in comparison.checks],

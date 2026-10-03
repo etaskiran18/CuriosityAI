@@ -66,6 +66,12 @@ HEDGED = [
     {"author": "the texts", "claim": "Some texts might connect curiosity with problems", "probability": 0.6},
 ]
 
+# Claims every text agrees with: they say only that one thing influences another.
+WEAK = [
+    {"author": "Plato", "claim": "Wonder plays a significant role in philosophy, the feeling of a philosopher", "probability": 0.8},
+    {"author": "Dewey", "claim": "Observation of things influences curiosity", "probability": 0.7},
+]
+
 
 class ScriptedLLM:
     def __init__(
@@ -76,6 +82,7 @@ class ScriptedLLM:
         contradict_for_real: bool = False,
         echo_unexpected: bool = False,
         hedge: str = "never",  # "never", "first" (only before the retry) or "always"
+        weak: str = "never",  # the same, for predictions that only claim an influence
         judge: Callable[[str, str], str] | str | None = None,
         relevance: Callable[[str], Any] | Any = 3,
         grade: str = "correct",
@@ -87,6 +94,7 @@ class ScriptedLLM:
         self.contradict_for_real = contradict_for_real
         self.echo_unexpected = echo_unexpected
         self.hedge = hedge
+        self.weak = weak
         self.judge_rule = judge
         self.relevance = relevance
         self.grade = grade
@@ -120,12 +128,13 @@ class ScriptedLLM:
     def json_chat(self, system: str, user: str, schema_hint: str, *, temperature: float | None = None, max_tokens: int | None = None) -> dict[str, Any]:
         step = self._enter(system, user)
         if step == "ANTICIPATE":
-            retry = "You first wrote these as hedged guesses" in user
+            retry = "Write all your predictions again" in user
             hedged = self.hedge == "always" or (self.hedge == "first" and not retry)
+            weak = self.weak == "always" or (self.weak == "first" and not retry)
             return {
                 "answer": "Wonder is the feeling that starts philosophical inquiry.",
                 "confidence": "0.4",
-                "expectations": HEDGED if hedged else DEFINITE,
+                "expectations": HEDGED if hedged else WEAK if weak else DEFINITE,
             }
         if step == "COMPARE":
             passages = passages_in(user)
