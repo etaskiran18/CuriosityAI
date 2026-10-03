@@ -387,3 +387,29 @@ def test_the_opening_skips_the_authors_addresses():
             "amplitude of whistler waves is developed.")
     assert opening(text).startswith("A method for the estimation of electron density")
 
+
+def test_each_claim_of_the_draft_is_set_against_what_other_texts_said():
+    from types import SimpleNamespace
+
+    from curiosity_ai.organism.research_map import _draft_section
+    from curiosity_ai.organism.state import Episode
+    from curiosity_ai.organism.textutil import token_set
+
+    claim = "The plasmapause organizes the pathways through which lightning-generated waves reach the inner magnetosphere."
+    episodes = [
+        Episode(heartbeat=3, question_id="Q2", question="q", prior_confidence=0.3, confidence=0.3,
+                sources=["[S1] Human observer, My article (draft) (the person's own work: their claims, not evidence)"],
+                checks=[{"expectation": 1, "status": "own", "source": "S1", "quote": claim}]),
+        Episode(heartbeat=7, question_id="Q2", question="q", prior_confidence=0.3, confidence=0.4,
+                sources=["[S2] Golden, The source regions of whistlers", "[S3] A. Author, Another paper"],
+                checks=[{"expectation": 1, "status": "confirmed", "source": "S2",
+                         "quote": "the plasmapause organizes whistler pathways into the inner magnetosphere"},
+                        {"expectation": 2, "status": "confirmed", "source": "S3", "quote": "soup needs salt and a bay leaf"}]),
+    ]
+    organism = SimpleNamespace(topic_words=token_set("lightning whistlers inner magnetosphere"))
+    text = "\n".join(_draft_section(episodes, organism))
+    assert "Golden, The source regions of whistlers says something similar" in text
+    assert "soup" not in text
+    lone = "\n".join(_draft_section(episodes[:1], organism))
+    assert "no other text it read says this yet" in lone
+
