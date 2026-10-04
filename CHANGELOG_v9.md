@@ -217,3 +217,37 @@ polarization", a guess Wonder made at heartbeat 17 that no text supports:
   is not marked as invented when a passage it read cites Singh itself; and the theory says "(a guess)"
   instead of "(guess: [B4])".
 
+## After the one test (45 heartbeats in one hour, mistral 7B, the person's papers and draft)
+
+It ran to the end: 45 heartbeats, two planned rests, predictions that name the library's real authors, only
+4% of them hedged, and the draft never counted as evidence. But the texts addressed only 6% of its
+predictions, no answer was supported by a quote, and its theory mixed terms from different papers into
+wrong physics. What it showed, and what changed:
+
+* **A crash at birth**: on battery, the new life waited for the charger while it prepared its topic, then
+  failed ("no attribute 'rest_log'"). The rest log now exists before birth, and the body's messages are
+  shown from the start.
+* **Doubt without a reason**: 55 doubts in 45 heartbeats, nearly all of guesses, on nothing but the
+  skeptic's words; "The ionosphere acts as a waveguide for lightning-generated whistlers" was retracted.
+  Now any belief is doubted only when a text contradicted, in the same heartbeat, a prediction it expected
+  that says much the same.
+* **A false contradiction that grew**: the judge called "We report the discovery of specularly reflected
+  whistler ..." a contradiction of "SR whistlers provide a more efficient channel ..."; the skeptic then
+  put in quotation marks words the paper does not contain, and a question about a "discrepancy in the
+  literature" was born. Every contradiction now gets a second look ("Can the claim and the quote both be
+  true?"; mistral answered it right 6 of 6, while "does the quote say the claim is false?" got 4 of 6), and
+  debate turns that quote words found in none of the texts are marked as invented.
+* **The theory is called a guess** in the map while no answer is supported by a quote.
+* **Single, short questions**: new questions had grown to 45 words, two questions in one; its own questions
+  now keep their first question and at most 30 words (a person's question keeps its words).
+* **The draft section** lists each claim once, leaves out fragments, and matches another text only on a
+  third of the words beyond the topic's own (a paper on ULF waves had "said something similar" to a claim
+  about whistler pathways because both name the plasmapause).
+* **Why sources were busy**: 74 searches found Semantic Scholar, arXiv or Wikipedia busy. The report now
+  says why for each source (too many requests, server trouble, no answer in time, no connection), and a
+  source rests at most 10 minutes. `python live.py --check --web` asks each source once.
+* "X will explain the difference between ..." and "Insights are provided on ..." count as hedged.
+
+Not changed, because the model limits it: more than half of mistral's predictions still only say that one
+thing influences another, and it copied many quotes wrongly (caught, but those checks are lost). Five of
+the person's PDFs are scans without text; with OCR (`ocrmypdf`) they could be read.

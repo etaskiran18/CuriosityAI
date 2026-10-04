@@ -24,6 +24,8 @@ python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers/bat
   `<home>/papers/`, with page markers such as `[page 3]` so every quote can be found again.
   Scanned PDFs (pictures of pages) contain no text; they are listed so you can run OCR on them first.
   Reference lists are not read (a reference is not evidence), nor lines that hold only numbers.
+  To make a scanned PDF readable, run OCR on it first, for example `ocrmypdf --skip-text in.pdf out.pdf`
+  (in WSL: `sudo apt install ocrmypdf`).
 * `--web` (optional): when your papers say little about a question, it looks for more: paper abstracts
   from Semantic Scholar and arXiv, and encyclopedia articles. Get a free Semantic Scholar API key
   (semanticscholar.org/product/api) and put it in `SEMANTIC_SCHOLAR_API_KEY`; without one that source
@@ -100,7 +102,9 @@ The same safeguards as the philosophy organism (see [ORGANISM.md](ORGANISM.md)):
 * answers must say what would prove them wrong; vague answers ("complex", "many factors") earn no confidence,
   and hedged ones ("may play a role", "could potentially") earn very little, as do answers that would be
   wrong only "if X played no role at all";
-* a belief resting on a quote from your papers is doubted only when a text contradicts it;
+* a belief is doubted only when a text contradicts something it expected, and every contradiction gets a
+  second look from the judge ("can the claim and the quote both be true?");
+* while none of its answers is supported by a quote, the map says its theory is a guess;
 * an answer is held only as firmly as the quotes that support *it* allow: a new answer does not inherit
   the confidence of the old one, and an answer no quote supports stays at 0.5 or below;
 * new questions must stay close to your topic: the judge rates each one, and off-topic ones are set aside;
