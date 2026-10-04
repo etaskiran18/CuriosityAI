@@ -272,11 +272,18 @@ class CuriosityOrganism:
         self.baseline = Temperament(**self.oc.temperament.model_dump())
         self.papers_dir = self.home / "papers"
         self.body = body if body is not None else Body(self.oc.body)
+        # A new life already thinks while it is born (it prepares its topic), so the body may already rest: on a
+        # laptop running on battery, a birth waited for the charger and then failed for want of a rest log.
+        self.rest_log: list[Rest] = []
+        self._early_notes: list[str] = []
         self.body.on_rest = self._remember_rest
         self.judge = self._make_judge(judge_llm)
         state = load_mind(self.mind_path)
         self.newborn = state is None
         self.state = state if state is not None else self._birth()
+        for note in self._early_notes:
+            self.diary.note(note)  # rests taken while it was being born, after the diary's first page
+        self._early_notes = []
         self._adopt_topic_defaults()
         topic = self.state.topic
         self.persona = P.researcher(topic.title, topic.description, topic.meaning) if self.research else P.PHILOSOPHY
@@ -294,7 +301,6 @@ class CuriosityOrganism:
             owned = [self.papers_dir] if self.research else [Path(config.corpus.path)]
             librarian = Librarian(self.oc.librarian, self.library_dir, owned_dirs=owned)
         self.librarian = librarian
-        self.rest_log: list[Rest] = []
         self.no_thought = 0
         self.last_report: "SessionReport | None" = None
 
@@ -1741,7 +1747,11 @@ class CuriosityOrganism:
         minutes = rest.seconds / 60
         length = f"{minutes:.1f} minutes" if minutes >= 1.5 else f"{rest.seconds:.0f} seconds"
         why = {"rhythm": "my work and rest rhythm", "cooling": "to let the computer cool down", "battery": "until the charger was connected"}
-        self.diary.note(f"*I rested {length}, {why.get(rest.reason, rest.reason)}: {rest.detail}.*")
+        note = f"*I rested {length}, {why.get(rest.reason, rest.reason)}: {rest.detail}.*"
+        if getattr(self, "state", None) is None:
+            self._early_notes.append(note)  # still being born: the diary has no first page yet
+        else:
+            self.diary.note(note)
 
     def _trace(self, step: str, prompt: str, reply: Any) -> None:
         if self.oc.trace_llm:

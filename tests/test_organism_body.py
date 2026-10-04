@@ -198,3 +198,16 @@ def test_inside_wsl_the_charger_is_asked_from_windows(monkeypatch, tmp_path: Pat
     assert sensors.on_battery() is True
     assert len(calls) == 1  # cached: asking Windows is slow
     assert "Win32_Battery" in calls[0][-1]
+
+
+def test_a_new_life_may_rest_while_it_is_born(config):
+    """A laptop on battery waited for the charger while a new life prepared its topic, then crashed: the rest
+    was recorded before the organism had a place to record it."""
+    config.organism.body.enabled = True
+    config.organism.research.topic = "How does lightning illuminate the inner magnetosphere?"
+    t = FakeTime()
+    body = Body(config.organism.body, sensors=FakeSensors(temps=[None], battery=[True, True, False]), sleep=t.sleep, clock=t.clock)
+    org = CuriosityOrganism(config, llm=ScriptedLLM(), body=body)
+    assert [r.reason for r in org.rest_log] == ["battery"]
+    diary = (org.home / "diary.md").read_text(encoding="utf-8")
+    assert diary.startswith("# Diary of") and "until the charger was connected" in diary

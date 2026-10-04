@@ -34,7 +34,7 @@ from rich.table import Table
 from curiosity_ai.config import AppConfig, load_config
 from curiosity_ai.llm import OllamaClient
 from curiosity_ai.organism import CuriosityOrganism, OrganismError
-from curiosity_ai.organism.body import SystemSensors
+from curiosity_ai.organism.body import Body, SystemSensors
 from curiosity_ai.organism.librarian import Librarian, user_agent
 from curiosity_ai.organism.drive import DIAGNOSES
 from curiosity_ai.organism.exam import run_exam
@@ -530,8 +530,11 @@ def main() -> int:
         if not check_ollama(config):
             return 1
 
-    organism = CuriosityOrganism(config)
-    organism.body.log = lambda message: console.print(f"[blue]{escape(message)}[/blue]")
+    # The body speaks from the start: a new life thinks (and may rest, e.g. until the charger is connected)
+    # while it prepares its topic.
+    body = Body(config.organism.body)
+    body.log = lambda message: console.print(f"[blue]{escape(message)}[/blue]")
+    organism = CuriosityOrganism(config, body=body)
     if organism.newborn:
         console.print(f"[green]{escape(organism.state.name)} is born[/green] to study [bold]{escape(organism.state.topic.title)}[/bold] "
                       f"with {len(organism.state.questions)} questions:")
