@@ -19,6 +19,7 @@ what the organism has, with every claim traceable to a quote:
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -59,6 +60,10 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
     if topic.until_year:
         lines += [f"**Reading only papers published up to {topic.until_year}.**", ""]
     lines += ["## What it now thinks", "", understanding or "(no theory yet)", ""]
+    if understanding and not understanding.startswith("I have no theory") and not any(q.support and q.answer for q in st.questions.values()):
+        # In the one test mistral built a theory of "ducted waves like MR and Nu" (MR whistlers are not ducted) while
+        # none of its 45 answers was supported by a quote.
+        lines += ["*None of its answers is supported by a quote the judge accepted yet: read this as a guess.*", ""]
 
     # Open questions by pull.
     drives = organism.drives()
@@ -196,7 +201,14 @@ def _draft_section(episodes: list[Episode], organism: "CuriosityOrganism") -> li
             if not quote:
                 continue
             if c.get("status") == "own":
-                claims.setdefault(" ".join(quote.lower().split()), (e.heartbeat, e.question_id, quote))
+                if _is_fragment(quote):
+                    continue  # "] play a central role in ...", "The pathways through which this energy ["
+                key = _claim_key(quote)
+                same = next((k for k in claims if k in key or key in k), None)  # the same sentence, cut or not
+                if same is None:
+                    claims[key] = (e.heartbeat, e.question_id, quote)
+                elif len(key) > len(same):
+                    claims[key] = (claims.pop(same)[0], e.question_id, quote)  # keep the whole sentence, first seen
             elif c.get("status") in ("confirmed", "contradicted"):
                 evidence.append((quote, c["status"], sources.get(c.get("source", ""), ""), e.heartbeat))
     if not claims:
@@ -205,7 +217,9 @@ def _draft_section(episodes: list[Episode], organism: "CuriosityOrganism") -> li
              "*Your draft is never evidence for itself: these are your claims, set against what the other texts said.*", ""]
     for heartbeat, qid, quote in sorted(claims.values())[:15]:
         lines.append(f'- "{one_line(quote, 220)}" (heartbeat {heartbeat}, {qid})')
-        related = [ev for ev in evidence if lexically_related(quote, ev[0], organism.topic_words)]
+        # a third of the words in common (beyond the topic's own): a paper on ULF waves "says something similar" to
+        # a claim about whistler pathways only because both name the plasmapause
+        related = [ev for ev in evidence if lexically_related(quote, ev[0], organism.topic_words, floor=0.34)]
         for text, status, source, hb in related[:3]:
             word = "says something similar" if status == "confirmed" else "says the opposite"
             lines.append(f'  - {source} {word}: "{one_line(text, 200)}" (heartbeat {hb})')
@@ -213,3 +227,12 @@ def _draft_section(episodes: list[Episode], organism: "CuriosityOrganism") -> li
             lines.append("  - no other text it read says this yet")
     return lines + [""]
 
+
+def _claim_key(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+
+
+def _is_fragment(text: str) -> bool:
+    """A piece of a sentence, not a claim: too short, or cut at either end."""
+    t = text.strip()
+    return len(t.split()) < 8 or not t[:1].isalnum() or t.endswith(("[", "(", "-", "\u2013"))

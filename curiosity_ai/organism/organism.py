@@ -450,7 +450,7 @@ class CuriosityOrganism:
 
     def ask(self, text: str, importance: float = 0.9) -> Question:
         """A human question becomes one of the organism's own open questions."""
-        text = _clean_question(text) or text.strip()
+        text = _clean_question(text, its_own=False) or text.strip()
         existing = self._find_similar_question(text)
         if existing is not None:
             existing.importance = clamp(max(existing.importance, importance))
@@ -2026,12 +2026,35 @@ def _parse_settlement(data: dict[str, Any]) -> Settlement:
     )
 
 
-def _clean_question(text: str) -> str:
+_SECOND_QUESTION = re.compile(
+    r"(?:,|;|\u2014|\s-)\s*(?:and\s+|but\s+)?(?:what|how|which|why|whether|to what extent|where|when|who|does|do|is|are|can|could)\b"
+    r"|,\s*(?:as suggested by|considering|taking into account|given|in light of|with (?:a )?(?:focus|emphasis) on)\b",
+    re.IGNORECASE,
+)
+MAX_QUESTION_WORDS = 30
+
+
+def _one_question(text: str) -> str:
+    """The first question of a double one: "What is the direct interaction between the plasmapause and the ionospheric
+    FAI, and how does this interaction impact the overall propagation ...?" -> "What is the direct interaction between
+    the plasmapause and the ionospheric FAI?" (in the one test new questions grew to 45 words)."""
+    first = text.split("?", 1)[0]
+    cut = _SECOND_QUESTION.search(first)
+    if cut and len(first[:cut.start()].split()) >= 6:
+        first = first[:cut.start()]
+    return first.rstrip(" ,;:-") + "?"
+
+
+def _clean_question(text: str, *, its_own: bool = True) -> str:
+    """A question as the organism keeps it. Its own questions are one question of at most 30 words; a person's
+    question (``its_own=False``) keeps its words."""
     text = re.sub(r"\s+", " ", _as_str(text)).strip()
     text = re.sub(r"^(\d+[.)]|[-*•]|Q\d*[:.)]|question\s*\d*[:.)])\s*", "", text, flags=re.IGNORECASE).strip()
     text = text.strip('"').strip("“”").strip()
+    if its_own and "?" in text:
+        text = _one_question(text)
     words = text.split()
-    if len(words) < 4 or len(words) > 70:
+    if len(words) < 4 or len(words) > (MAX_QUESTION_WORDS if its_own else 70):
         return ""
     return text
 

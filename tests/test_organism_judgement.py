@@ -43,6 +43,8 @@ def test_brier_scoring_rewards_confident_truths_and_punishes_confident_errors():
 
 def test_hedges_are_recognised():
     assert is_hedged("The texts may discuss the role of wonder")
+    assert is_hedged("Carpenter will explain the difference between ordinary and extraordinary modes of whistler propagation")
+    assert is_hedged("Insights are provided on the interaction between the plasmapause and the ionosphere")
     assert is_hedged("Some texts might connect curiosity with problems")
     assert not is_hedged("Dewey holds that curiosity dies if it is not used at the right moment")
 

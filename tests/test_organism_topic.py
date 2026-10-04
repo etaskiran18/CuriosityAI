@@ -256,3 +256,30 @@ def test_a_bare_stance_word_is_no_stance(config):
     wonder = [t for t in ep.dialogue if t["voice"] == "Wonder"]
     assert len(wonder) >= 2 and "stance" not in wonder[-1] and ep.stance == ""
 
+
+
+
+@pytest.mark.parametrize("asked, kept", [
+    ("What is the direct interaction between the plasmapause and the ionospheric FAI, and how does this interaction impact "
+     "the overall propagation and interaction of lightning-generated whistlers in the inner magnetosphere?",
+     "What is the direct interaction between the plasmapause and the ionospheric FAI?"),
+    ("What are the specific mechanisms that shape the propagation pathways of nonducted lightning-generated whistlers in the "
+     "inner magnetosphere, as suggested by the discovery of SR whistlers?",
+     "What are the specific mechanisms that shape the propagation pathways of nonducted lightning-generated whistlers in the inner magnetosphere?"),
+    ("What factors beyond the specific lightning events and ionospheric conditions contribute to the observed discrepancies in "
+     "the literature regarding the role of specular reflection and the quasielectrostatic field in lightning-generated whistler "
+     "propagation to the inner magnetosphere?", ""),  # one question, but too long to be answered by one paper
+    ("Does understanding something end our wonder about it, or deepen it?", "Does understanding something end our wonder about it, or deepen it?"),
+])
+def test_its_own_questions_are_single_and_short(asked, kept):
+    """In the one test new questions grew to 45 words, two questions in one."""
+    from curiosity_ai.organism.organism import _clean_question
+
+    assert _clean_question(asked) == kept
+
+
+def test_a_persons_question_keeps_its_words(config):
+    long_question = ("How does the plasmapause organize the pathways of lightning-generated whistlers, and what does this mean "
+                     "for the electron density we infer from them at different L-shells?")
+    q = CuriosityOrganism(config, llm=ScriptedLLM()).ask(long_question)
+    assert q.text == long_question

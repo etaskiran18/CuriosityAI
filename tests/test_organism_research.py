@@ -414,6 +414,40 @@ def test_each_claim_of_the_draft_is_set_against_what_other_texts_said():
     assert "no other text it read says this yet" in lone
 
 
+
+def test_the_draft_section_shows_whole_claims_once_and_only_close_matches():
+    """In the one test the section listed "] play a central role in ..." and the same sentence three times, and said
+    a paper on ULF waves "says something similar" to a claim about whistler pathways (both name the plasmapause)."""
+    from types import SimpleNamespace
+
+    from curiosity_ai.organism.research_map import _draft_section
+    from curiosity_ai.organism.state import Episode
+    from curiosity_ai.organism.textutil import token_set
+
+    whole = "The plasmapause thus organizes the pathways through which lightning-generated waves illuminate the inner magnetosphere"
+    own = "[S1] Human observer, My article (draft) (the person's own work: their claims, not evidence)"
+
+    def episode(hb, *checks, sources=(own,)):
+        return Episode(heartbeat=hb, question_id="Q7", question="q", prior_confidence=0.3, confidence=0.3,
+                       sources=list(sources), checks=list(checks))
+
+    episodes = [
+        episode(2, {"expectation": 1, "status": "own", "source": "S1", "quote": whole}),
+        episode(5, {"expectation": 1, "status": "own", "source": "S1", "quote": whole + ","}),
+        episode(6, {"expectation": 1, "status": "own", "source": "S1", "quote": "The plasmapause thus organizes the pathways through"}),
+        episode(16, {"expectation": 2, "status": "own", "source": "S1", "quote": "] play a central role in selecting these propagation pathways."}),
+        episode(33, {"expectation": 1, "status": "own", "source": "S1", "quote": "The pathways through which this energy ["}),
+        episode(28, {"expectation": 1, "status": "confirmed", "source": "S2",
+                     "quote": "Plasmasphere and its boundary, plasmapause, are special regions for ULF waves to interact with charged particles."},
+                sources=["[S2] A. Rubtsov, Plasmasphere Control of ULF Wave Distribution"]),
+    ]
+    organism = SimpleNamespace(topic_words=token_set("lightning whistlers inner magnetosphere electromagnetic energy"))
+    text = "\n".join(_draft_section(episodes, organism))
+    claims = [line for line in text.splitlines() if line.startswith('- "')]
+    assert claims == [f'- "{whole}" (heartbeat 2, Q7)']
+    assert "Rubtsov" not in text and "no other text it read says this yet" in text
+
+
 @pytest.mark.parametrize("author, junk", [
     ("iitm", True), ("user", True), ("Microsoft Office User", True),
     ("Enrico Camporeale", False), ("D. L. Carpenter", False), ("V. V. Shastun, O. V. Agapitov", False),

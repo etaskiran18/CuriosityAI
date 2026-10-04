@@ -6,8 +6,10 @@ import pytest
 
 from curiosity_ai.organism import CuriosityOrganism, OrganismError
 from curiosity_ai.organism.organism import Check, Comparison
+from curiosity_ai.organism.state import Evidence
 
 from .conftest import SEED
+
 from .organism_fakes import ScriptedLLM
 
 
@@ -105,6 +107,21 @@ def test_quotes_name_their_text_for_a_person(config):
     for name, text in documents.items():
         assert f"*{title}*" in text, name
         assert q.support[0].citation not in text, name
+
+
+def test_a_theory_no_answer_supports_is_called_a_guess(config):
+    """In the one test the map gave a theory of "ducted waves like MR and Nu" (MR whistlers are not ducted) while none of
+    its 45 answers was supported by a quote."""
+    from curiosity_ai.organism.research_map import render_research_map
+
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND", settle=_sure("Certain now.")))
+    org.heartbeat()
+    org.state.self_model.understanding_of_curiosity = "Wonder is a feeling of lack that only curiosity can fill."
+    assert not any(q.support for q in org.state.questions.values())
+    assert "read this as a guess" in render_research_map(org)
+    org.state.questions["Q1"].answer = "Wonder is the feeling of a philosopher."
+    org.state.questions["Q1"].support = [Evidence(citation="[BOOK:T]", quote="wonder is the feeling of a philosopher", source_title="Plato")]
+    assert "read this as a guess" not in render_research_map(org)
 
 
 def test_an_answer_no_quote_supports_stays_at_the_base(config):
