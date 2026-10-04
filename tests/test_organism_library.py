@@ -14,6 +14,7 @@ from curiosity_ai.organism.librarian import (
     Http,
     Librarian,
     ReadingWish,
+    SourceBusy,
     clean_wikipedia_extract,
     parse_catalog,
 )
@@ -193,7 +194,8 @@ def test_a_busy_source_is_reported_as_busy_not_as_nothing_found(tmp_path: Path):
     lib = make_librarian(tmp_path, FakeInternet(scholar_status=429, arxiv_status=503))
     got = lib.acquire(ReadingWish(topics=["Curiosity"], papers=["information gap curiosity"]), reason="r")
     assert [a.kind for a in got] == ["encyclopedia"]
-    assert lib.busy == ["paper: information gap curiosity (api.semanticscholar.org, export.arxiv.org)"] and lib.missed == []
+    assert lib.busy == ["paper: information gap curiosity (api.semanticscholar.org: HTTP 429, too many requests; "
+                        "export.arxiv.org: HTTP 503, server trouble)"] and lib.missed == []
 
 
 def test_when_semantic_scholar_is_busy_arxiv_is_asked(tmp_path: Path):
@@ -221,6 +223,33 @@ def test_http_waits_as_asked_then_rests_the_host():
     assert waits == [7.0] and Session.calls == 2
     assert http.get("https://en.wikipedia.org/w/api.php") is None
     assert Session.calls == 2  # resting: no request at all
+
+
+def test_http_says_why_a_source_could_not_be_asked_and_rests_at_most_ten_minutes():
+    """In the one test 74 searches found their source busy; the report could not say why."""
+    import requests
+
+    class Session:
+        replies: list = []
+
+        def get(self, url, params=None, timeout=None, headers=None):
+            reply = Session.replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+    now = [0.0]
+    http = Http("ua", min_interval=0, sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0], session=Session())
+    Session.replies = [Reply(status=429, headers={"Retry-After": "3600"})]
+    assert http.get("https://api.semanticscholar.org/graph/v1/paper/search") is None
+    assert http.why["api.semanticscholar.org"] == "HTTP 429, too many requests"
+    now[0] += 601
+    assert not http.resting("https://api.semanticscholar.org/graph/v1/paper/search")  # not an hour, whatever it asked
+    Session.replies = [requests.Timeout("slow")]
+    assert http.get("https://export.arxiv.org/api/query") is None and http.why["export.arxiv.org"] == "no answer in time"
+    Session.replies = [requests.ConnectionError("down")]
+    with pytest.raises(SourceBusy, match="en.wikipedia.org: no connection"):
+        http.get_or_busy("https://en.wikipedia.org/w/api.php")
 
 
 def test_acquired_texts_are_read_and_labelled(tmp_path: Path):

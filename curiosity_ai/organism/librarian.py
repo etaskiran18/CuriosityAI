@@ -107,6 +107,7 @@ class Http:
         self.host_intervals = host_intervals or {}
         self.max_wait = max_wait
         self.busy = False  # True when the last request could not be answered (rate limit, server, network)
+        self.why: dict[str, str] = {}  # host -> why it could not be asked, for the person reading the report
         self._sleep = sleep
         self._clock = clock
         self.session = session or requests.Session()
@@ -123,6 +124,7 @@ class Http:
         self.busy = False
         if self.resting(url):
             self.busy = True
+            self.why.setdefault(host, "resting after a refusal")
             return None
         interval = self.host_intervals.get(host, self.min_interval)
         for attempt in range(2):
@@ -133,8 +135,13 @@ class Http:
                 resp = self.session.get(
                     url, params=params, timeout=self.timeout, headers={"User-Agent": self.user_agent, **(headers or {})}
                 )
-            except requests.RequestException:
+            except requests.Timeout:
                 self.busy = True
+                self.why[host] = "no answer in time"
+                return None
+            except requests.RequestException as exc:
+                self.busy = True
+                self.why[host] = f"no connection ({type(exc).__name__})"
                 return None
             finally:
                 self._last[host] = self._clock()
@@ -143,8 +150,10 @@ class Http:
                 if attempt == 0 and retry <= self.max_wait:
                     self._sleep(retry)
                     continue
-                self._resting_until[host] = self._clock() + max(retry, 120)
+                # Rest a while, but not for the whole run whatever the server asks (at most 10 minutes).
+                self._resting_until[host] = self._clock() + min(max(retry, 120), 600)
                 self.busy = True
+                self.why[host] = "HTTP 429, too many requests" if resp.status_code == 429 else f"HTTP {resp.status_code}, server trouble"
                 return None
             return resp if resp.status_code < 400 else None
         self.busy = True
@@ -154,7 +163,8 @@ class Http:
         """Like get, but a source that could not be asked raises SourceBusy."""
         resp = self.get(url, params=params, headers=headers)
         if resp is None and self.busy:
-            raise SourceBusy(urlparse(url).netloc)
+            host = urlparse(url).netloc
+            raise SourceBusy(f"{host}: {self.why.get(host, 'busy')}")
         return resp
 
 
@@ -677,7 +687,7 @@ class Librarian:
                     return result
                 outcome = outcome or result  # off topic: remember, but try the next source
         if outcome is None and busy:
-            raise SourceBusy(", ".join(busy))
+            raise SourceBusy("; ".join(busy))
         return outcome
 
     def _save_paper(self, paper: dict[str, Any], query: str, context: str, source: str, **meta) -> "Acquisition | str | None":

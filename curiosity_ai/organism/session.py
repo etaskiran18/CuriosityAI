@@ -222,6 +222,7 @@ def compute_metrics(
         "acquisitions": len(acquired),
         "acquisitions_by_kind": dict(Counter(label.split(":")[0] for label in acquired)),
         "library_busy": sum(len(e.library_busy) for e in episodes),
+        "library_busy_why": _busy_reasons(episodes),
         "library_rejected": sum(len(e.library_rejected) for e in episodes),
         "diagnoses": dict(Counter(v.get("diagnosis", "") for v in vitals)),
     }
@@ -298,6 +299,10 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"{m['library_rejected']} found but off topic; {m['library_busy']} searches impossible because a source was busy.",
         f"- **Self-regulation:** {_counts({DIAGNOSES.get(k, {}).get('name', k): v for k, v in m['diagnoses'].items()}) or 'no reflection in this session'}.",
     ]
+    if m.get("library_busy_why"):
+        lines.append("- **Why sources were busy:** " + "; ".join(
+            f"{host} {n} times ({why}{_BUSY_HINTS.get((host, why.split(',')[0]), '')})" for (host, why), n in m["library_busy_why"]
+        ) + ".")
     if m.get("own_claims_met"):
         lines.append(f"- **Your draft:** its claims came up {m['own_claims_met']} times; they never count as evidence for "
                      "themselves (the research map sets them against what the other texts say).")
@@ -386,3 +391,19 @@ def _mean(values: list[float]) -> float:
 
 def _counts(counts: dict[str, int]) -> str:
     return ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])) or "none"
+
+
+_BUSY_HINTS = {
+    ("api.semanticscholar.org", "HTTP 429"): ": a free API key helps, see docs/RESEARCHER.md",
+    ("export.arxiv.org", "HTTP 429"): ": arXiv allows one request every few seconds",
+}
+
+
+def _busy_reasons(episodes: list[Episode]) -> list[tuple[tuple[str, str], int]]:
+    """(host, why) and how often, from lines such as 'paper: x (api.semanticscholar.org: HTTP 429, too many requests)'."""
+    counts: Counter = Counter()
+    for e in episodes:
+        for line in e.library_busy:
+            for host, why in re.findall(r"([a-z0-9-]+(?:\.[a-z0-9-]+)+): ([^;()]+(?:\([^)]*\))?)", line):
+                counts[(host, why.strip())] += 1
+    return [(key, n) for key, n in counts.most_common(6)]
