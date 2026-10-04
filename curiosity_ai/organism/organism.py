@@ -934,6 +934,11 @@ class CuriosityOrganism:
             entry = {"voice": voice, "text": clip(_strip_voice_prefix(text, voice), 1200)}
             if _cites_from_memory(entry["text"], [o.text for o in observations]):
                 entry["citations"] = "unverified"  # papers it was not shown, cited from memory: possibly invented
+            known = [o.text for o in observations] + [o.heading for o in observations] + [q.text, prior_answer, findings]
+            if _invented_quotes(entry["text"], known + [t["text"] for t in transcript]):
+                # mistral's skeptic "quoted" a paper saying the opposite of what it says ("previous claims ... may
+                # need ..."), and a question about a discrepancy in the literature was born from it
+                entry["quotes"] = "invented"
             if voice == "Skeptic":
                 entry["evidence"] = "quote" if _quotes_a_passage(entry["text"], observations) else ""
             elif turn > 0:
@@ -2050,6 +2055,16 @@ def _stance(text: str) -> tuple[str, str]:
 def _turn_line(turn: dict[str, str]) -> str:
     stance = f" ({turn['stance']}s)" if turn.get("stance") else ""
     return f"{turn['voice'].upper()}{stance}: {turn['text']}"
+
+
+def _invented_quotes(text: str, known: list[str]) -> list[str]:
+    """Words in quotation marks that stand in none of the texts it was shown (nor in the question or the debate)."""
+    invented = []
+    for quoted in re.findall(r'"([^"]{20,400})"|\u201c([^\u201d]{20,400})\u201d', text):
+        fragment = next((part for part in quoted if part), "")
+        if not any(verify_quote(fragment, k) for k in known if k):
+            invented.append(fragment)
+    return invented
 
 
 def _quotes_a_passage(text: str, observations: list[Observation]) -> bool:

@@ -8,7 +8,7 @@ import pytest
 
 from curiosity_ai.organism import CuriosityOrganism
 from curiosity_ai.organism.judge import Judge, Pair, rating_of, verdict_of
-from curiosity_ai.organism.organism import Check, Comparison, _name_sources, _quotes_a_passage, _stance, _without_belief_labels
+from curiosity_ai.organism.organism import Check, Comparison, _invented_quotes, _name_sources, _quotes_a_passage, _stance, _without_belief_labels
 from curiosity_ai.organism.senses import Observation
 from curiosity_ai.organism.state import Evidence
 from curiosity_ai.organism.textutil import is_hedged, is_influence_only, is_non_answer, is_strawman_falsifier, lexically_related, token_set, vagueness
@@ -443,6 +443,33 @@ def test_a_belief_a_text_has_just_repeated_is_not_doubted(config):
     ep = org.heartbeat()
     assert ep.contradicted == 1 and ep.doubted_belief_ids == [] and ep.agreed_doubt_ids == [belief.id]
     assert "says much the same: no reason for doubt" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_a_contradiction_needs_a_second_look(config):
+    """mistral called "We report the discovery of specularly reflected (SR) whistler in which the lightning energy ...
+    reaches the magnetosphere" a contradiction of "SR whistlers provide a more efficient low-latitude channel ...";
+    from that a question about a discrepancy in the literature was born."""
+    config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
+    llm = ScriptedLLM(contradict_for_real=True, expect_contradiction=True, contradiction_holds=False)
+    ep = CuriosityOrganism(config, llm=llm).heartbeat()
+    assert ep.contradicted == 0 and llm.calls.count("JUDGE") >= 2
+    judged = [j for j in ep.judgments if j["kind"] == "expectation" and "every question" in j["claim"]]
+    assert judged and judged[0]["judge"] == "neither" and "second look" in judged[0]["reason"]
+    config.organism.home += "-confirmed"
+    ep = CuriosityOrganism(config, llm=ScriptedLLM(contradict_for_real=True, expect_contradiction=True)).heartbeat()
+    assert ep.contradicted == 1  # the judge said yes again: a real surprise
+
+
+def test_a_quote_in_none_of_the_texts_is_marked_as_invented():
+    passage = "We report the discovery of specularly reflected (SR) whistler in which the lightning energy injected into the ionosphere at low latitudes reaches the magnetosphere."
+    skeptic = ('[S2] directly contradicts it, stating that "previous claims that lightning energy injected into the ionosphere at '
+               'low latitudes can reach the magnetosphere may need revision".')
+    assert _invented_quotes(skeptic, [passage]) == [
+        "previous claims that lightning energy injected into the ionosphere at low latitudes can reach the magnetosphere may need revision"]
+    honest = 'As [S2] says, "the lightning energy injected into the ionosphere at low latitudes reaches the magnetosphere".'
+    assert _invented_quotes(honest, [passage]) == []
+    titled = 'In "Specularly reflected whistler: A low-latitude channel" the authors report it.'
+    assert _invented_quotes(titled, [passage, "Specularly reflected whistler: A low-latitude channel to couple lightning energy"]) == []
 
 
 def test_a_guess_is_not_doubted_on_words_alone(config):

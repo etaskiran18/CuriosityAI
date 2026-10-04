@@ -121,6 +121,17 @@ If the claim names who holds it, a quote from someone else cannot support it.
 Judge only the words given, not what you know yourself.
 """.strip()
 
+# A second look at a contradiction: it moves much (surprise, doubt, new questions), and a 7B judge called "We report
+# the discovery of specularly reflected whistlers ..." a contradiction of "SR whistlers provide a more efficient channel".
+# Asked "does the quote say the claim is false?", mistral also denied plain contradictions ("Whistlers play no role in
+# precipitation" against "Whistlers ... contributing to the precipitation"); "can both be true?" it answered right 6 of 6.
+JUDGE_CONTRADICTION = """
+[JUDGE] You are a strict, impartial reader. You compare a CLAIM with a QUOTE.
+Two statements contradict each other only if they cannot both be true. A quote that leaves out part of the claim,
+says less than the claim, or is about something related can be true together with the claim.
+Judge only the words given, not what you know yourself.
+""".strip()
+
 JUDGE_TEXT = """
 [JUDGE] You are a strict, impartial reader. A search found a text; you decide from its title and beginning
 whether it is worth reading for a question. Sharing a word with the question is not enough: a text about
@@ -207,6 +218,13 @@ JUDGE_SCHEMA = """
 {
   "verdicts": [{"pair": 1, "verdict": "supports or contradicts or neither", "reason": "a few words"}],
   "ratings": [{"question": 1, "rating": "0, 1, 2 or 3"}]
+}
+""".strip()
+
+CONTRADICTION_SCHEMA = """
+{
+  "both_true": "yes or no: can the claim and the quote both be true?",
+  "reason": "a few words"
 }
 """.strip()
 

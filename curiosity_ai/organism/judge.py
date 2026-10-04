@@ -99,7 +99,33 @@ class Judge:
             return [Verdict("unjudged") for _ in pairs], [None for _ in questions]
         self.trace("judge", user, data)
         data = data if isinstance(data, dict) else {}
-        return _parse_verdicts(data.get("verdicts"), len(pairs)), _parse_ratings(data.get("ratings"), len(questions))
+        verdicts = _parse_verdicts(data.get("verdicts"), len(pairs))
+        for i, verdict in enumerate(verdicts):
+            if verdict.verdict == "contradicts" and self.contradiction_holds(pairs[i], errors=errors) is False:
+                verdicts[i] = Verdict("neither", f"on a second look the claim and the quote can both be true ({verdict.reason})")
+        return verdicts, _parse_ratings(data.get("ratings"), len(questions))
+
+    def contradiction_holds(self, pair: Pair, *, errors: list[str] | None = None) -> bool | None:
+        """A second look at a contradiction: can the claim and the quote not both be true? None if the judge could not say."""
+        user = (
+            f"CLAIM: {one_line(pair.claim, 400)}\nQUOTE" + (f" (from {one_line(pair.source, 120)})" if pair.source else "")
+            + f': "{one_line(pair.quote, 500)}"\n\nCan the claim and the quote both be true?'
+        )
+        self.before_thinking()
+        try:
+            data = self.llm.json_chat(P.JUDGE_CONTRADICTION, user, P.CONTRADICTION_SCHEMA, temperature=self.temperature, max_tokens=120)
+        except Exception as exc:
+            if errors is not None:
+                errors.append(f"judge: {type(exc).__name__}: {one_line(str(exc), 160)}")
+            self.trace("judge-contradiction", user, f"ERROR {exc}")
+            return None  # the first verdict stands
+        self.trace("judge-contradiction", user, data)
+        both = _as_str((data or {}).get("both_true") if isinstance(data, dict) else "").strip().lower()
+        if both.startswith("no"):
+            return True
+        if both.startswith("yes"):
+            return False
+        return None
 
 
     def text_relevance(self, title: str, excerpt: str, *, question: str, topic: str, errors: list[str] | None = None) -> float | None:

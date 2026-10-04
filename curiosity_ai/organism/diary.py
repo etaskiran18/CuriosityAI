@@ -110,6 +110,8 @@ class Diary:
                 evidence = " *(quoting the text)*" if turn.get("evidence") == "quote" else ""
                 if turn.get("citations") == "unverified":
                     evidence += " *(cites papers it was not shown: unverified, possibly invented)*"
+                if turn.get("quotes") == "invented":
+                    evidence += " *(puts in quotation marks words that are in none of the texts: invented)*"
                 lines.append(f"> **{turn['voice']}{stance}:**{evidence} {one_line(turn['text'], 1200)}")
                 lines.append(">")
             lines.pop()

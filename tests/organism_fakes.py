@@ -81,6 +81,7 @@ class ScriptedLLM:
         settle: dict[str, Any] | None = None,
         contradict_for_real: bool = False,
         expect_contradiction: bool = False,
+        contradiction_holds: bool = True,
         echo_unexpected: bool = False,
         hedge: str = "never",  # "never", "first" (only before the retry) or "always"
         weak: str = "never",  # the same, for predictions that only claim an influence
@@ -94,6 +95,7 @@ class ScriptedLLM:
         self.settle_override = settle
         self.contradict_for_real = contradict_for_real
         self.expect_contradiction = expect_contradiction  # E3 ("Reason can answer every question it raises") at p = 0.7
+        self.contradiction_holds = contradiction_holds  # the judge's second look at a contradiction confirms it
         self.echo_unexpected = echo_unexpected
         self.hedge = hedge
         self.weak = weak
@@ -173,6 +175,8 @@ class ScriptedLLM:
             }
         if step == "JUDGE" and "A text found in a search" in user:
             return {"rating": self.text_rating, "reason": "scripted"}
+        if step == "JUDGE" and "Can the claim and the quote both be true?" in user:
+            return {"both_true": "no" if self.contradiction_holds else "yes", "reason": "scripted"}
         if step == "JUDGE":
             verdicts = []
             for n, claim, quote in pairs_in(user):

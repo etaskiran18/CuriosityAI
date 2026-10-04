@@ -217,6 +217,7 @@ def compute_metrics(
         "questions_held_back": sum(len(e.held_back_questions) for e in episodes),
         "questions_unknowable": sum(len(e.unknowable_questions) for e in episodes),
         "dialogue_unverified_citations": sum(1 for e in episodes for t in e.dialogue if t.get("citations") == "unverified"),
+        "dialogue_invented_quotes": sum(1 for e in episodes for t in e.dialogue if t.get("quotes") == "invented"),
         "library_visits": sum(1 for e in episodes if e.acquisitions or e.library_misses or e.library_owned or e.library_busy or e.library_rejected),
         "acquisitions": len(acquired),
         "acquisitions_by_kind": dict(Counter(label.split(":")[0] for label in acquired)),
@@ -288,7 +289,8 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "
         f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong and {m.get('hedged_answers', 0)} hedged (may, could); "
         f"{m.get('strawman_falsifiers', 0)} would have been wrong only if nothing at all were at play; "
-        f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified).",
+        f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified), "
+        f"{m.get('dialogue_invented_quotes', 0)} put in quotation marks words that are in none of the texts.",
         f"- **Staying on topic and in depth:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
         f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look, "
         f"{m.get('questions_unknowable', 0)} not asked because they were about things nobody has identified.",
