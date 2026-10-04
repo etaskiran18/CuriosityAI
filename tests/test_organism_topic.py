@@ -162,7 +162,8 @@ def test_a_surprise_without_evidence_is_only_a_gap(config):
 
 def test_doubting_an_old_guess_without_evidence_is_no_contradiction(config):
     """In a real run a 3B model doubted an earlier belief at almost every heartbeat, with no quote the
-    judge accepted, and each doubt let a "contradiction" question be born at once."""
+    judge accepted, and each doubt let a "contradiction" question be born at once. In the one test mistral
+    doubted 55 times in 45 heartbeats, guesses included, while the texts contradicted one prediction."""
     contradiction = {**GAP, "trigger": "contradiction"}
 
     def live(judge: str):
@@ -174,11 +175,11 @@ def test_doubting_an_old_guess_without_evidence_is_no_contradiction(config):
         return org.heartbeat()
 
     ep = live("neither")
-    assert ep.doubted_belief_ids == ["B1"]  # the doubt itself still counts
+    assert ep.doubted_belief_ids == [] and ep.paper_doubt_ids == ["B1"]  # words alone doubt nothing
     assert ep.new_question_ids == [] and ep.held_back_questions == [GAP["question"]]
     config.organism.home += "-with-evidence"
     ep = live("supports")
-    assert ep.doubted_belief_ids == ["B1"] and len(ep.new_question_ids) == 1
+    assert ep.doubted_belief_ids == [] and ep.paper_doubt_ids == ["B1"]  # a confirmation is no contradiction either
 
 
 def test_a_real_surprise_gives_birth_at_once(config):

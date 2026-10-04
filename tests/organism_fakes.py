@@ -80,6 +80,7 @@ class ScriptedLLM:
         fail_steps: tuple[str, ...] = (),
         settle: dict[str, Any] | None = None,
         contradict_for_real: bool = False,
+        expect_contradiction: bool = False,
         echo_unexpected: bool = False,
         hedge: str = "never",  # "never", "first" (only before the retry) or "always"
         weak: str = "never",  # the same, for predictions that only claim an influence
@@ -92,6 +93,7 @@ class ScriptedLLM:
         self.fail_steps = set(fail_steps)
         self.settle_override = settle
         self.contradict_for_real = contradict_for_real
+        self.expect_contradiction = expect_contradiction  # E3 ("Reason can answer every question it raises") at p = 0.7
         self.echo_unexpected = echo_unexpected
         self.hedge = hedge
         self.weak = weak
@@ -131,10 +133,13 @@ class ScriptedLLM:
             retry = "Write all your predictions again" in user
             hedged = self.hedge == "always" or (self.hedge == "first" and not retry)
             weak = self.weak == "always" or (self.weak == "first" and not retry)
+            expectations = HEDGED if hedged else WEAK if weak else DEFINITE
+            if self.expect_contradiction:
+                expectations = [dict(e, probability=0.7) if "every question" in e["claim"] else e for e in expectations]
             return {
                 "answer": "Wonder is the feeling that starts philosophical inquiry.",
                 "confidence": "0.4",
-                "expectations": HEDGED if hedged else WEAK if weak else DEFINITE,
+                "expectations": expectations,
             }
         if step == "COMPARE":
             passages = passages_in(user)

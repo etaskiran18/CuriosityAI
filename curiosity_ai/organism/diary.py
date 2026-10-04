@@ -145,7 +145,7 @@ class Diary:
                 lines.append(f"- Now doubting **{bid}** -> {b.confidence:.2f}: {b.statement}")
         if ep.paper_doubt_ids:
             ids = ", ".join(f"**{bid}**" for bid in ep.paper_doubt_ids)
-            lines.append(f"- I wanted to doubt {ids}, but no text contradicted it: a belief that rests on a text gives way only to a text.")
+            lines.append(f"- I wanted to doubt {ids}, but no text I read contradicted it: a belief gives way only to a text that speaks against it.")
         if ep.agreed_doubt_ids:
             ids = ", ".join(f"**{bid}**" for bid in ep.agreed_doubt_ids)
             lines.append(f"- I wanted to doubt {ids}, but a quote the judge accepted just now says much the same: no reason for doubt.")

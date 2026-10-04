@@ -431,18 +431,37 @@ def test_a_belief_a_text_has_just_repeated_is_not_doubted(config):
     """mistral doubted, and retracted, "The interaction between electrons and the primary whistler wave packet plays a
     role ..." in the heartbeats in which the judge accepted "The electrons interacted with the primary whistler wave
     packet" for a prediction."""
-    def live(statement: str):
-        org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(contradicts=["B1"])))
-        belief = org.state.add_belief(statement, confidence=0.35)  # an interpretation: an argument alone may doubt it
+    config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
+    llm = ScriptedLLM(contradict_for_real=True, expect_contradiction=True, settle=settle(contradicts=["B1"]))
+    org = CuriosityOrganism(config, llm=llm)
+    org.heartbeat()  # (to learn which quote the judge accepts for E1)
+    agreeing = next(c["quote"] for c in org.state.recent_episodes[-1].checks if c["status"] == "confirmed")
+    config.organism.home += "-again"
+    org = CuriosityOrganism(config, llm=ScriptedLLM(contradict_for_real=True, expect_contradiction=True, settle=settle(contradicts=["B1"])))
+    # it speaks of what a text contradicted, but repeats what a quote accepted just now says
+    belief = org.state.add_belief(f"Reason can answer every question it raises: {agreeing}.", confidence=0.35)
+    ep = org.heartbeat()
+    assert ep.contradicted == 1 and ep.doubted_belief_ids == [] and ep.agreed_doubt_ids == [belief.id]
+    assert "says much the same: no reason for doubt" in (org.home / "diary.md").read_text(encoding="utf-8")
+
+
+def test_a_guess_is_not_doubted_on_words_alone(config):
+    """In the one test mistral doubted 55 times in 45 heartbeats, nearly always a guess, while the texts contradicted
+    one prediction; "The ionosphere acts as a waveguide for lightning-generated whistlers" was retracted."""
+    config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
+
+    def live(**kw):
+        org = CuriosityOrganism(config, llm=ScriptedLLM(settle=settle(contradicts=["B1"]), **kw))
+        belief = org.state.add_belief("Reason can answer every question that it raises.", confidence=0.35)  # a guess
         return org, belief, org.heartbeat()
 
-    org, belief, ep = live("Wonder is the feeling of a philosopher, and philosophy begins in wonder.")
-    assert ep.doubted_belief_ids == [] and ep.agreed_doubt_ids == [belief.id]
-    assert org.state.beliefs[belief.id].status == "held" and org.state.beliefs[belief.id].confidence == pytest.approx(0.35)
-    assert "says much the same: no reason for doubt" in (org.home / "diary.md").read_text(encoding="utf-8")
-    config.organism.home += "-other"
-    org, belief, ep = live("Wonder and curiosity are the same thing, as Plato says.")
-    assert ep.doubted_belief_ids == [belief.id] and ep.agreed_doubt_ids == []
+    org, belief, ep = live()
+    assert ep.doubted_belief_ids == [] and ep.paper_doubt_ids == [belief.id]
+    assert org.state.beliefs[belief.id].status == "held"
+    assert "no text I read contradicted it" in (org.home / "diary.md").read_text(encoding="utf-8")
+    config.organism.home += "-contradicted"
+    org, belief, ep = live(contradict_for_real=True, expect_contradiction=True)
+    assert ep.doubted_belief_ids == [belief.id] and org.state.beliefs[belief.id].confidence == pytest.approx(0.2)
 
 
 # -- after the fourth research run --------------------------------------------------------

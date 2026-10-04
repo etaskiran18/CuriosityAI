@@ -1008,10 +1008,11 @@ class CuriosityOrganism:
         # A contradiction surprises only if it overturns what it expected (p >= 0.5): a 7B model, asked for claims a
         # text could contradict, denied what it believed ("X is not crucial", p = 0.05). Being "contradicted" there is
         # no surprising fact, and licenses neither doubting a quoted belief nor a "contradiction" question.
-        surprising = sum(
-            1 for c in comparison.checks
+        surprises = [
+            c for c in comparison.checks
             if c.status == "contradicted" and 1 <= c.expectation <= len(probabilities) and probabilities[c.expectation - 1] >= 0.5
-        )
+        ]
+        surprising = len(surprises)
         stance = next((t.get("stance", "") for t in reversed(dialogue) if t.get("voice") == "Wonder" and t.get("stance")), "")
         settlement.answer = _name_sources(settlement.answer, by_label, keep_citations=True)
         settlement.falsifier = _name_sources(settlement.falsifier, by_label, keep_citations=True)
@@ -1142,14 +1143,19 @@ class CuriosityOrganism:
             if belief_id not in q.related_beliefs:
                 q.related_beliefs.append(belief_id)
 
-        # Contradictions: only beliefs that were actually shown to the model can be doubted, and a belief
-        # that rests on a quote only when the judge accepted a contradiction in this heartbeat. A 7B model
-        # doubted beliefs 36 times in an hour, the person's own article among them, while the texts
-        # contradicted nothing: Peirce's "paper doubt", not the real doubt a surprising fact brings.
+        # Contradictions: only beliefs that were actually shown to the model can be doubted, and only when the
+        # judge accepted, in this heartbeat, a contradiction of something it expected (a surprising fact), about the
+        # same things as the belief. A 7B model doubted beliefs 36 times in an hour, the person's own article among
+        # them, while the texts contradicted nothing: Peirce's "paper doubt", not the real doubt a surprising fact
+        # brings. Guesses were no exception: in the one test, mistral doubted 55 times in 45 heartbeats on nothing
+        # but the skeptic's words, and retracted textbook physics ("The ionosphere acts as a waveguide for
+        # lightning-generated whistlers").
         doubted: list[str] = []
         paper_doubts: list[str] = []
         agreed_doubts: list[str] = []
         shown = {b.id for b in related}
+        expected = [p.claim for p in anticipation.predictions]
+        overturned = [expected[c.expectation - 1] for c in surprises]  # what it expected, and a text contradicted
         # A 7B model doubted "The interaction between electrons and the primary whistler wave packet plays a role
         # in ..." twice, and retracted it, in the heartbeats in which the judge accepted "The electrons interacted
         # with the primary whistler wave packet" for a prediction: what a text has just said is no reason for doubt.
@@ -1158,8 +1164,8 @@ class CuriosityOrganism:
             belief = st.beliefs.get(bid)
             if belief is None or bid not in shown or bid in new_beliefs or bid in reinforced:
                 continue
-            if not belief.interpretive and surprising == 0:
-                paper_doubts.append(bid)
+            if not any(overlap(belief.statement, claim) >= 0.5 for claim in overturned):
+                paper_doubts.append(bid)  # no text spoke against it: it stays as it was
                 continue
             if any(lexically_related(belief.statement, quote, self.topic_words, floor=0.5) for quote in agreeing):
                 agreed_doubts.append(bid)

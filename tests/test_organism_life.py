@@ -142,7 +142,8 @@ def test_certainty_cannot_grow_without_evidence(config):
 
 def test_contradiction_doubts_a_belief_and_reopens_what_relied_on_it(config):
     config.organism.seed_questions = ["Can reason answer every question that it raises, or are some questions beyond it?"]
-    llm = ScriptedLLM(settle={"answer": "No.", "confidence": 0.5, "contradicts": ["B1 is contradicted by Kant", "B99"], "new_questions": []})
+    settle = {"answer": "No.", "confidence": 0.5, "contradicts": ["B1 is contradicted by Kant", "B99"], "new_questions": []}
+    llm = ScriptedLLM(contradict_for_real=True, expect_contradiction=True, settle=settle)  # a text overturns what it expected
     org = CuriosityOrganism(config, llm=llm)
     belief = org.state.add_belief("Reason can answer every question that it raises.", confidence=0.6)
     unrelated = org.state.add_belief("Soup needs salt and a bay leaf.", confidence=0.6)
