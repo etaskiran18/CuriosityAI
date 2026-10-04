@@ -36,6 +36,8 @@ python live.py --new-life --topic "How does lightning illuminate the inner magne
 `--new-life` is needed: lives started with older versions keep confidences and beliefs made under the
 old rules. The old life is moved to an archive folder, not deleted.
 
+On a laptop, keep the charger connected: on battery it rests until the charger is connected (it says so).
+
 When it starts, read the line **"It takes the topic to mean: ..."**. If that is not what your field
 means, stop it (Ctrl+C) and start again with the topic in your field's words.
 
@@ -49,6 +51,18 @@ From `memory/research/lightning/`:
 * `sessions/<newest>/judge_check.csv`, if you have ten minutes: write `supports`, `contradicts` or
   `neither` in the last column (`your_verdict`) for each row. That measures how far the judge can be
   trusted (`python scripts/judge_agreement.py <that file>`).
+
+## 4b. The curiosity life (the philosophy of curiosity), after the research run
+
+Run it after the research run, not at the same time (both would share the GPU and both would be slow):
+
+```bash
+python live.py --new-life --minutes 60 --web
+```
+
+Add `--judge-model qwen2.5:14b` here too if you downloaded it. This life lives in `memory/organism/`
+(`--new-life` moves the old one to an archive folder). Send back from `memory/organism/`:
+`research_map.md`, `diary.md` and `sessions/<newest>/report.md`.
 
 ## 5. What to look at yourself
 
