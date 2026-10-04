@@ -264,8 +264,8 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
     lines = [
         f"# Session {meta['session_id']}",
         "",
-        f"Model `{meta['model']}`, policy **{meta['policy']}**, web library {'on' if meta['web'] else 'off'}, "
-        f"seed {meta['random_seed']}{limit}. Life: `{meta['home']}`.",
+        f"Model `{meta['model']}`, judge `{meta.get('judge_model') or 'off'}`, policy **{meta['policy']}**, "
+        f"web library {'on' if meta['web'] else 'off'}, seed {meta['random_seed']}{limit}. Life: `{meta['home']}`.",
         "",
         "## Summary",
         "",
