@@ -193,6 +193,20 @@ def _curiosity_sections(st) -> list[str]:
                 + (f" It now says: {q.identified_as}" if q.identified_as else "")
             )
         lines.append("")
+    curious = sorted(((h, s) for h, s in st.sources.items() if s.awakened > 0), key=lambda item: -item[1].curiosity_yield)
+    if curious:
+        lines += ["## Texts that made it curious", "",
+                  "It goes back to these in spare time (voluntary exposure): the curiosities a text awakened, not the answers it gave.", ""]
+        lines += [
+            f"- *{h}*: read {s.read} times, awakened {s.awakened} curiosities, answered {s.answered}, went back {s.returned} times"
+            for h, s in curious[:8]
+        ]
+        lines.append("")
+    if st.interests:
+        top = sorted(st.interests.items(), key=lambda kv: -kv[1])[:20]
+        lines += ["## What it has come to be interested in", "",
+                  "Words of the curiosities it pursued (weight 1) and of those a text answered (weight 2), the topic's own words left out:", "",
+                  ", ".join(f"{w} ({v:g})" for w, v in top), ""]
     return lines
 
 

@@ -14,7 +14,7 @@ _PASSAGE_RE = re.compile(r"\[(S\d+)\] [^\n]*\n(.*?)(?=\n\n\[S\d+\] |\n\n(?:For e
 _PAIR_RE = re.compile(r"^(\d+)\. CLAIM: (.*)\n\s+QUOTE[^:]*: \"(.*)\"$", re.MULTILINE)
 _STEPS = (
     "ANTICIPATE", "COMPARE", "WONDER", "SKEPTIC", "SETTLE", "NOTICE", "REFLECT", "LIBRARIAN", "JUDGE", "GRADE", "EXAM", "TOPIC",
-    "CONCEIVE", "SATISFY",
+    "CONCEIVE", "SATISFY", "RETURN",
 )
 
 # A curiosity record as a careful model writes one for the seed question about wonder.
@@ -23,7 +23,7 @@ RECORD = {
     "known": ["Plato links wonder to the beginning of philosophy"],
     "answer_form": "a text naming the feeling with which philosophy begins",
     "interest": "It decides whether wonder and curiosity are one thing.",
-    "reachable": "yes",
+    "unknowable": "no",
     "pursue_now": "yes",
     "why": "It is the question I began with.",
 }
@@ -256,6 +256,8 @@ class ScriptedLLM:
             }
         if step == "NOTICE":
             return {"questions": [{"question": "Why does boredom feel like the opposite of curiosity rather than its absence?", "importance": 0.8}]}
+        if step == "RETURN":
+            return {"questions": [{"question": "Why did Plato call Iris, the messenger of heaven, the child of wonder?", "importance": 0.6}]}
         if step == "REFLECT":
             return {
                 "understanding_of_curiosity": "Curiosity is the pursuit that perplexity sets in motion; it lives on gaps it can partly see.",

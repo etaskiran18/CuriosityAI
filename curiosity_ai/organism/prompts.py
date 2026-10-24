@@ -85,12 +85,19 @@ or the skeptic found a real weakness. Your answer must be specific enough to be 
 [NOTICE] A human has shared an observation with you. You read it and notice what is genuinely puzzling in it,
 given what you already believe.
 """,
+    "RETURN": """
+[RETURN] In a spare moment you go back to a text that has made you curious before, and read on. You notice what
+genuinely puzzles you in it, given what you already believe and your main topic. If nothing does, say so.
+""",
     "CONCEIVE": """
 [CONCEIVE] You make one of your questions precise, as a curiosity. Curiosity has an object: something you can name
-but cannot yet identify, such as "the cause of the dark stain on the wall" or "the person who wrote this letter".
-Say what exactly you do not know, what you already know about it, and what answer would end your curiosity: what
-you could then say, and what a text would have to state. Be honest about whether any text or observation could
-ever answer it, and about whether you want to pursue it now.
+but cannot yet identify. Say what exactly you do not know, what you already know about it, and what answer would
+end your curiosity: what you could then say, and what a text would have to state.
+For example, for the question "Why is there a dark stain on the wall?" the unknown is "the cause of the dark stain
+on the wall", and it would be answered by "a text or an observation saying what made the stain, for example water
+from a leaking pipe". Write your own, about your question: never copy this example.
+Answer "yes" to unknowable only for something nobody could ever find out, such as the exact thoughts of a person who
+left no trace; questions about ideas, causes or mechanisms can be answered by texts.
 """,
     "SATISFY": """
 [SATISFY] You check whether what you have just read ends one of your curiosities. It ends only when a passage lets
@@ -246,9 +253,9 @@ CONCEIVE_SCHEMA = """
 {
   "unknown": "the one thing you cannot yet identify, written as: the ... that ...",
   "known": ["one thing you already know about it"],
-  "answer_form": "what would answer it: what you could then say, and what a text would have to state",
+  "answer_form": "a text or an observation saying ...",
   "interest": "one sentence: why it matters to you now",
-  "reachable": "yes or no: could any text or observation ever answer it?",
+  "unknowable": "yes or no: is it something nobody could ever find out?",
   "pursue_now": "yes or no",
   "why": "one sentence: why now, or why later"
 }

@@ -157,7 +157,7 @@ def test_satisfaction_checks_can_be_limited(records):
     org._apply_record(waiting, dict(_parse_record(RECORD), unknown="the feeling that marks a philosopher and with which philosophy begins"))
     waiting.status = "deferred"
     org.heartbeat()
-    assert waiting.status == "deferred"
+    assert waiting.status != "satisfied" and not waiting.satisfied_by
 
 
 def test_an_answered_curiosity_is_not_asked_again(records):
@@ -195,7 +195,7 @@ def test_the_persons_own_draft_cannot_end_a_curiosity(records):
     from curiosity_ai.organism.state import Episode
 
     ep = Episode(heartbeat=1, question_id="Q1", question=q.text)
-    org._satisfaction(q, ep, [draft], [])
+    org._after_reading(q, ep, [draft], [])
     assert q.status == "open" and not ep.satisfied
 
 
@@ -220,14 +220,25 @@ def test_a_session_reports_what_happened_to_its_curiosities(records):
 
 def test_parse_record_refuses_schema_hints_and_keeps_answers():
     assert _parse_record({"unknown": "the one thing you cannot yet identify", "answer_form": "a mechanism"}) is None
-    assert _parse_record({"unknown": "the cause of the stain", "answer_form": "what would answer it: a text"}) is None
+    assert _parse_record({"unknown": "the cause of the noise", "answer_form": "what would answer it: a text"}) is None
+    # qwen2.5:3b copied the list of examples as its answer form
+    assert _parse_record({"unknown": "the threshold at which curiosity becomes a vice",
+                          "answer_form": "a mechanism, a number, a condition, a name, ..."}) is None
     record = _parse_record({
-        "unknown": "the cause of the dark stain on the wall?", "known": "it is wet\nit grew overnight", "answer_form": "a text naming the cause",
-        "reachable": "No", "pursue_now": "yes or no", "why": "x",
+        "unknown": "the cause of the noise in the attic?", "known": "it is loud\nit started last night",
+        "answer_form": "a text naming what made the noise", "interest": "why it matters to you now: I cannot sleep",
+        "reachable": "No", "pursue_now": "yes or no", "why": "now: x",
     })
-    assert record["unknown"] == "the cause of the dark stain on the wall"
-    assert record["known"] == ["it is wet", "it grew overnight"]  # one string of lines becomes a list
+    assert record["unknown"] == "the cause of the noise in the attic"
+    assert record["known"] == ["it is loud", "it started last night"]  # one string of lines becomes a list
+    assert record["interest"] == "I cannot sleep"  # the field's label copied in front is taken off
     assert record["reachable"] is False and record["wish"] == "" and record["wish_reason"] == ""
+
+
+def test_the_prompts_worked_example_copied_back_is_no_record():
+    stain = {"unknown": "the cause of the dark stain on the wall", "answer_form": "a text or an observation saying what made the stain"}
+    assert _parse_record(stain, "When does curiosity turn into a vice?") is None
+    assert _parse_record(stain, "Why is there a dark stain on the wall of my kitchen?") is not None
 
 
 @pytest.mark.parametrize("raw, expected", [

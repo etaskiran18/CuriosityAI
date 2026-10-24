@@ -22,8 +22,8 @@ from ..schema import utc_now_iso
 # until the curiosity was gone) and dropped (let go for another reason).
 QuestionStatus = Literal["open", "settled", "dormant", "unanswerable", "deferred", "satisfied", "faded", "dropped"]
 CLOSED_STATUSES: tuple[str, ...] = ("settled", "satisfied", "unanswerable", "faded", "dropped")
-Trigger = Literal["seed", "human", "observation", "surprise", "contradiction", "gap", "objection", "reflection"]
-TRIGGERS: tuple[str, ...] = ("seed", "human", "observation", "surprise", "contradiction", "gap", "objection", "reflection")
+Trigger = Literal["seed", "human", "observation", "surprise", "contradiction", "gap", "objection", "reflection", "exposure"]
+TRIGGERS: tuple[str, ...] = ("seed", "human", "observation", "surprise", "contradiction", "gap", "objection", "reflection", "exposure")
 
 
 class Evidence(BaseModel):
@@ -86,6 +86,7 @@ class Question(BaseModel):
     wish: str = ""  # what it wanted when the curiosity was born: "now" or "later"
     wish_reason: str = ""
     intensity: float = 0.0  # 0..1: how strongly it is curious now
+    interest_fit: float = 0.0  # 0..1: how close it was, when born, to what it had come to be interested in
     touched_at: int | None = None  # the last heartbeat something touched its object
     decision: str = ""  # pursue | defer | drop
     decision_reason: str = ""
@@ -95,6 +96,7 @@ class Question(BaseModel):
     satisfied_at: int | None = None
     satisfied_incidentally: bool = False  # satisfied while it was not being pursued (read for another question)
     origin_sources: list[str] = Field(default_factory=list)  # the texts whose reading awakened it
+    history: list[str] = Field(default_factory=list)  # "hb 12: deferred (no text I have speaks of it ...)"
 
     @property
     def active_visits(self) -> list[Visit]:
@@ -226,6 +228,13 @@ class Episode(BaseModel):
     satisfied: list[dict[str, Any]] = Field(default_factory=list)  # curiosities a verified quote ended this heartbeat
     satisfaction_refused: list[dict[str, Any]] = Field(default_factory=list)  # it believed so; the judge did not
     already_satisfied: list[str] = Field(default_factory=list)  # proposed again, though an earlier curiosity already ended
+    decisions: list[dict[str, Any]] = Field(default_factory=list)  # pursue or defer, why, and when (birth, touch, room)
+    # What drew its attention (the pre-conceptual layer): a confident prediction a text contradicted, an unexpected
+    # passage, a text it had never read. Attention alone gives birth to nothing; naming an unknown does.
+    attention: list[dict[str, Any]] = Field(default_factory=list)
+    faded: list[str] = Field(default_factory=list)  # curiosities whose intensity fell away while attention was elsewhere
+    passages_read: int = 0  # passages read this heartbeat (not the person's own work)
+    passages_from_curious: int = 0  # ... of them from texts that had already made it curious
     relevance: float = 1.0  # how on topic the question of this heartbeat was
     status_after: str = "open"
     policy: str = "curiosity"
@@ -235,6 +244,24 @@ class Episode(BaseModel):
     library_busy: list[str] = Field(default_factory=list)  # could not look: the source was busy or unreachable
     library_rejected: list[str] = Field(default_factory=list)  # found, but off the topic, so not kept
     errors: list[str] = Field(default_factory=list)
+
+
+class SourceStats(BaseModel):
+    """What one text has done for the organism (records architecture): read, made it curious, answered it."""
+
+    read: int = 0  # times it read from it (at most once a heartbeat)
+    first_read: int = 0  # heartbeat
+    last_read: int = 0
+    awakened: int = 0  # curiosities born while reading it
+    answered: int = 0  # curiosities it satisfied
+    returned: int = 0  # times it went back to it in spare time (voluntary exposure)
+    next_passage: int = 0  # where to read on when it goes back
+
+    @property
+    def curiosity_yield(self) -> float:
+        """Curiosities awakened per passage read, smoothed: a text read once that made it curious once is promising,
+        not certain. Ady et al.'s agent learns to value the bookstore, not the page that answered it."""
+        return (self.awakened + 0.5) / (self.read + 2)
 
 
 class MindState(BaseModel):
@@ -252,6 +279,10 @@ class MindState(BaseModel):
     recent_episodes: list[Episode] = Field(default_factory=list)
     unread_inbox: list[str] = Field(default_factory=list)
     vitals_history: list[dict[str, Any]] = Field(default_factory=list)
+    sources: dict[str, SourceStats] = Field(default_factory=dict)  # by "author, title" (records architecture)
+    # Coherent long-term learning: the words of the curiosities it pursued and the ones that ended, with weights.
+    interests: dict[str, float] = Field(default_factory=dict)
+    returns: list[dict[str, Any]] = Field(default_factory=list)  # times it went back to a text in spare time
 
     def add_question(self, text: str, **fields: Any) -> Question:
         qid = f"Q{self.next_question_num}"

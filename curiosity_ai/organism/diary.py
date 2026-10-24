@@ -37,6 +37,39 @@ def _check_line(c: dict) -> str:
     return f"- E{c.get('expectation')}: {mark}{quote}"
 
 
+def attention_summary(events: list[dict]) -> str:
+    """'a prediction a text contradicted (Plato, Theaetetus); 2 texts I had never read'"""
+    parts = []
+    surprises = [e for e in events if e.get("kind") == "surprise"]
+    unexpected = [e for e in events if e.get("kind") == "unexpected"]
+    new = [e for e in events if e.get("kind") == "novelty"]
+    if surprises:
+        parts.append(f"{_n(len(surprises), 'a prediction', 'predictions')} a text contradicted ({'; '.join(e['source'] for e in surprises[:2])})")
+    if unexpected:
+        parts.append(f"{_n(len(unexpected), 'an unexpected passage', 'unexpected passages')} ({'; '.join(e['source'] for e in unexpected[:2])})")
+    if new:
+        parts.append(f"{_n(len(new), 'a text', 'texts')} I had never read")
+    return "; ".join(parts)
+
+
+def _n(n: int, one: str, many: str) -> str:
+    return one if n == 1 else f"{n} {many}"
+
+
+def decision_line(d: dict) -> str:
+    """Whether it pursues a curiosity now, and why: being curious and acting on it are not the same (Inan)."""
+    qid, reason = d.get("question_id"), d.get("reason", "")
+    if d.get("decision") == "drop":
+        return f"- I let **{qid}** go: {reason}."
+    if d.get("decision") == "pursue":
+        if d.get("when") == "touch":
+            return f"- **{qid}** was waiting, and what I read spoke of it: I pursue it now ({reason})."
+        return f"- I pursue **{qid}** now: {reason}."
+    if d.get("when") == "room":
+        return f"- **{qid}** waits now: {reason}."
+    return f"- I am curious about **{qid}**, but I do not pursue it now, because {reason}."
+
+
 class Diary:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -106,6 +139,8 @@ class Diary:
             f"**Surprise** {ep.prediction_error:.2f} - **informativeness** {ep.informativeness:.2f}{brier}"
             + (f" - {ep.rejected_quotes} unverifiable quote(s) discarded" if ep.rejected_quotes else ""),
         ]
+        if ep.attention:
+            lines.append(f"*What drew my attention:* {attention_summary(ep.attention)}")
         if ep.dialogue:
             lines += ["", "**Inner dialogue**", ""]
             for turn in ep.dialogue:
@@ -173,12 +208,17 @@ class Diary:
                 if nq.has_record:
                     lines.append(f"  - *What I do not know:* {nq.unknown}. *It would be answered by:* {nq.answer_form}"
                                  + (f" *Why it matters:* {nq.interest}" if nq.interest else ""))
+        lines += [decision_line(d) for d in ep.decisions]
         for text in ep.not_conceived:
             lines.append(f"- This caught my attention, but I could not say what exactly I do not know, so no question was born: {text}")
         for qid in ep.already_satisfied:
             done = state.questions.get(qid)
             if done:
                 lines.append(f"- Not asked again: **{qid}** already ended when a text let me identify what I did not know.")
+        for qid in ep.faded:
+            gone = state.questions.get(qid)
+            if gone:
+                lines.append(f"- **{qid}** faded: {gone.status_reason}. ({gone.unknown})")
         for qid in ep.reawakened_question_ids:
             nq = state.questions.get(qid)
             if nq:
@@ -205,7 +245,10 @@ class Diary:
             lines.append(f"- *Trouble this heartbeat:* {'; '.join(ep.errors)}")
         self._append("\n".join(lines))
 
-    def noticed(self, title: str, question_ids: list[str], state: MindState, *, unconceived: list[str] | None = None) -> None:
+    def noticed(
+        self, title: str, question_ids: list[str], state: MindState, *, unconceived: list[str] | None = None,
+        decisions: list[dict] | None = None,
+    ) -> None:
         lines = [f"## A human shared something: *{title}*", ""]
         for qid in question_ids:
             q = state.questions.get(qid)
@@ -213,10 +256,28 @@ class Diary:
                 lines.append(f"- It made me wonder (**{qid}**): {q.text}")
                 if q.has_record:
                     lines.append(f"  - *What I do not know:* {q.unknown}. *It would be answered by:* {q.answer_form}")
+        lines += [decision_line(d) for d in decisions or []]
         for text in unconceived or []:
             lines.append(f"- It caught my attention, but I could not say what exactly I do not know: {text}")
         if not question_ids and not unconceived:
             lines.append("- I read it, but no new question came to me yet.")
+        self._append("\n".join(lines))
+
+    def returned(
+        self, heading: str, question_ids: list[str], state: MindState, *, unconceived: list[str], set_aside: list[str], decisions: list[dict],
+    ) -> None:
+        """Voluntary exposure: in spare time it went back to a text that had made it curious before."""
+        lines = [f"## Spare time: I went back to *{heading}*, a text that made me curious before, and read on", ""]
+        for qid in question_ids:
+            q = state.questions.get(qid)
+            if q:
+                lines.append(f"- It made me wonder again (**{qid}**): {q.text}")
+                lines.append(f"  - *What I do not know:* {q.unknown}. *It would be answered by:* {q.answer_form}")
+        lines += [decision_line(d) for d in decisions]
+        lines += [f"- Off my topic, so set aside: {text}" for text in set_aside]
+        lines += [f"- It caught my attention, but I could not say what exactly I do not know: {text}" for text in unconceived]
+        if not question_ids and not unconceived and not set_aside:
+            lines.append("- Nothing new puzzled me this time.")
         self._append("\n".join(lines))
 
     def asked(self, question_id: str, text: str, reused: bool) -> None:

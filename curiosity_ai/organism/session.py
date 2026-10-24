@@ -164,6 +164,14 @@ def compute_metrics(
         return after[kind].get(status, 0) - before[kind].get(status, 0)
 
     satisfied = [s for e in episodes for s in e.satisfied]
+    decisions = [d for e in episodes for d in e.decisions]
+    noticed = [e for e in episodes if e.attention]
+    returns = [r for r in state.returns if int(r.get("heartbeat", 0)) > int(before.get("heartbeat", 0))]
+    new_records = sorted(
+        (q for q in state.questions.values() if q.has_record and q.born_at > int(before.get("heartbeat", 0)) and q.trigger not in ("seed", "human")),
+        key=lambda q: q.born_at,
+    )
+    fits = [q.interest_fit for q in new_records]
     looks = []
     for s in satisfied:
         q = state.questions.get(s.get("question_id", ""))
@@ -196,6 +204,27 @@ def compute_metrics(
         "satisfaction_refused": sum(len(e.satisfaction_refused) for e in episodes),
         "already_satisfied_not_asked": sum(len(e.already_satisfied) for e in episodes),
         "looks_to_satisfaction": _mean(looks),
+        "pursued_at_birth": sum(1 for d in decisions if d.get("when") == "birth" and d.get("decision") == "pursue"),
+        "deferred_at_birth": sum(1 for d in decisions if d.get("when") == "birth" and d.get("decision") == "defer"),
+        "deferral_reasons": dict(Counter(d.get("kind", "") for d in decisions if d.get("decision") == "defer")),
+        "pursued_after_waiting": sum(1 for d in decisions if d.get("when") == "touch" and d.get("decision") == "pursue"),
+        "attention_events": dict(Counter(a.get("kind", "") for e in episodes for a in e.attention)),
+        "attention_heartbeats": len(noticed),
+        "attention_to_curiosity": round(
+            sum(1 for e in noticed if any(state.questions[q].has_record for q in e.new_question_ids if q in state.questions)) / len(noticed), 3
+        ) if noticed else 0.0,
+        "returns_to_texts": len(returns),
+        "born_on_return": sum(len(r.get("questions", [])) for r in returns),
+        "read_from_curious_texts": _share(episodes, "passages_from_curious", "passages_read"),
+        "read_from_curious_first_half": _share(episodes[:half], "passages_from_curious", "passages_read"),
+        "read_from_curious_second_half": _share(episodes[half:], "passages_from_curious", "passages_read"),
+        "interest_fit_of_new": _mean(fits),
+        "interest_fit_second_half": _mean(fits[len(fits) // 2:]),
+        "let_go_unreachable": sum(1 for d in decisions if d.get("kind") == "unreachable"),
+        "deferred_after_looking": sum(
+            1 for e in episodes if e.status_after == "deferred" and e.question_id in state.questions
+            and any(h.startswith(f"hb {e.heartbeat}: deferred (I have looked") for h in state.questions[e.question_id].history)
+        ),
         "beliefs_new": sum(len(e.new_belief_ids) for e in episodes),
         "beliefs_grounded": sum(e.grounded_new_beliefs for e in episodes),
         "beliefs_interpretive": sum(len(e.new_belief_ids) - e.grounded_new_beliefs for e in episodes),
@@ -412,8 +441,38 @@ def _records_lines(meta: dict[str, Any], m: dict[str, Any]) -> list[str]:
         f"else) after {m.get('looks_to_satisfaction', 0):g} looks on average; {m.get('satisfaction_refused', 0)} times it believed "
         f"a passage answered one, but the quote or the judge did not bear that out. Not asked again because already answered: "
         f"{m.get('already_satisfied_not_asked', 0)}. Deferred {m.get('questions_deferred', 0)}, faded {m.get('questions_faded', 0)}, "
-        f"let go {m.get('questions_dropped', 0)}."
+        f"let go {m.get('questions_dropped', 0)}.",
+        f"- **Curious, but not acting:** of the curiosities born, {m.get('pursued_at_birth', 0)} were pursued at once and "
+        f"{m.get('deferred_at_birth', 0)} deferred; reasons for deferring: {_counts(_reason_words(m.get('deferral_reasons', {})))}; "
+        f"{m.get('pursued_after_waiting', 0)} waiting curiosities were pursued after a text spoke of them.",
+        f"- **Attention and transience:** in {m.get('attention_heartbeats', 0)} heartbeats something drew its attention "
+        f"({_counts(_attention_words(m.get('attention_events', {})))}); in {m.get('attention_to_curiosity', 0):.0%} of them a "
+        f"curiosity was born. Faded {m.get('questions_faded', 0)}; let go because nothing could answer them "
+        f"{m.get('let_go_unreachable', 0)}; deferred after looking too long {m.get('deferred_after_looking', 0)}.",
+        f"- **Voluntary exposure and interests:** in spare time it went back {m.get('returns_to_texts', 0)} times to texts that "
+        f"had made it curious ({m.get('born_on_return', 0)} curiosities born there); of what it read, "
+        f"{m.get('read_from_curious_texts', 0):.0%} came from texts that had already made it curious (first half "
+        f"{m.get('read_from_curious_first_half', 0):.0%}, second half {m.get('read_from_curious_second_half', 0):.0%}); "
+        f"closeness of new curiosities to what it had come to be interested in: {m.get('interest_fit_of_new', 0):.2f} "
+        f"(second half {m.get('interest_fit_second_half', 0):.2f}).",
     ]
+
+
+_ATTENTION_WORDS = {"surprise": "contradicted predictions", "unexpected": "unexpected passages", "novelty": "texts never read before"}
+
+
+def _attention_words(kinds: dict[str, int]) -> dict[str, int]:
+    return {_ATTENTION_WORDS.get(k, k): v for k, v in kinds.items()}
+
+
+_REASON_WORDS = {
+    "wish": "it wanted to come back later", "no-texts": "no text spoke of it", "room": "stronger curiosities came first",
+    "person": "a person asked", "texts": "its texts spoke of it", "can-fetch": "it could look for texts",
+}
+
+
+def _reason_words(kinds: dict[str, int]) -> dict[str, int]:
+    return {_REASON_WORDS.get(k, k): v for k, v in kinds.items()}
 
 
 def _brier_text(m: dict[str, Any]) -> str:
@@ -437,6 +496,11 @@ def _judge_line(m: dict[str, Any]) -> str:
 
 def _mean(values: list[float]) -> float:
     return round(sum(values) / len(values), 3) if values else 0.0
+
+
+def _share(episodes: list[Episode], part: str, whole: str) -> float:
+    total = sum(getattr(e, whole) for e in episodes)
+    return round(sum(getattr(e, part) for e in episodes) / total, 3) if total else 0.0
 
 
 def _counts(counts: dict[str, int]) -> str:

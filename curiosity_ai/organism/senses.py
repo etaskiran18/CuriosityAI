@@ -269,6 +269,20 @@ class LexicalLibrary:
         return chosen
 
 
+    def passages_from(self, heading: str, *, start: int = 0, k: int = 2) -> list[Observation]:
+        """A text's passages in order, from the ``start``-th on (wrapping around): for going back to a text that has
+        made it curious before and reading on (voluntary exposure)."""
+        self._ensure_built()
+        chunks = [c for c in self._chunks if _chunk_heading(c) == heading]
+        if not chunks:
+            return []
+        start %= len(chunks)
+        picked = (chunks[start:] + chunks[:start])[:k]
+        return [
+            Observation(label="", citation=c.citation, title=c.title, author=c.author, text=c.text, kind=c.kind, note=c.note, own=c.own)
+            for c in picked
+        ]
+
     def own_beginnings(self) -> list[str]:
         """The opening of each work the person shared as their own (its real title is in there, not in the
         inbox title "My article (draft)"), so the librarian does not fetch it again as somebody's paper."""
@@ -292,6 +306,12 @@ class LexicalLibrary:
         for chunk in sorted(self._chunks, key=lambda c: order.get(c.kind, 3)):
             seen.setdefault(f"{chunk.author}, {chunk.title}" if chunk.author else chunk.title, None)
         return list(seen)
+
+
+def _chunk_heading(chunk: "_Chunk") -> str:
+    """The same name an Observation of this chunk would show (Observation.heading)."""
+    name = f"{chunk.author}, {chunk.title}" if chunk.author else chunk.title
+    return f"{name} ({chunk.note})" if chunk.note else name
 
 
 def _with_kind(entry) -> tuple[Path, str]:
@@ -428,6 +448,14 @@ class Senses:
 
     def notice_new_material(self) -> int:
         return self.library.refresh()
+
+    def reread(self, heading: str, *, start: int = 0, k: int = 2) -> list[Observation]:
+        """Passages of one text, labelled S1, S2, ... (an empty list if the library cannot do this)."""
+        found = getattr(self.library, "passages_from", lambda *a, **kw: [])(heading, start=start, k=k)
+        for i, obs in enumerate(found, start=1):
+            obs.label = f"S{i}"
+            obs.text = clip(obs.text, self.passage_chars)
+        return found
 
     def observe(self, question: str, expectations: list[str] | None = None) -> list[Observation]:
         """Passages for the question and for the predictions, taken in turn.
