@@ -118,6 +118,8 @@ class Session:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "report.md").write_text(markdown, encoding="utf-8")
         write_judge_check(directory / "judge_check.csv", episodes, seed=self.session_id)
+        if org.oc.curiosity.records:
+            write_records(directory / "curiosity_records.jsonl", org.state)
         try:
             from .research_map import write_research_map
 
@@ -213,6 +215,7 @@ def compute_metrics(
         "attention_to_curiosity": round(
             sum(1 for e in noticed if any(state.questions[q].has_record for q in e.new_question_ids if q in state.questions)) / len(noticed), 3
         ) if noticed else 0.0,
+        "deferred_fates": deferred_fates(state),  # over the whole life, not only this session
         "returns_to_texts": len(returns),
         "born_on_return": sum(len(r.get("questions", [])) for r in returns),
         "read_from_curious_texts": _share(episodes, "passages_from_curious", "passages_read"),
@@ -295,6 +298,40 @@ def exam_metrics(before: Any, after: Any) -> dict[str, Any]:
         out["exam_gain"] = round(after.score - before.score, 3)
         out["exam_grounded_gain"] = round(after.grounded_score - before.grounded_score, 3)
     return out
+
+
+RECORD_FIELDS = (
+    "id", "text", "trigger", "parent_id", "born_at", "status", "status_reason", "unknown", "known", "answer_form", "interest",
+    "reachable", "wish", "wish_reason", "intensity", "interest_fit", "decision", "decision_reason", "identified_as",
+    "satisfied_at", "satisfied_incidentally", "origin_sources", "history",
+)
+
+
+def write_records(path: Path, state: MindState) -> None:
+    """Every curiosity of this life with its record and its fate, one per line (for analysis and rating sheets)."""
+    with path.open("w", encoding="utf-8") as f:
+        for q in state.questions.values():
+            row = {k: getattr(q, k) for k in RECORD_FIELDS}
+            row["visits"] = len(q.visits)
+            row["satisfied_by"] = [{"quote": e.quote, "source": e.where} for e in q.satisfied_by]
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def deferred_fates(state: MindState) -> dict[str, int]:
+    """What became of the curiosities it once deferred: Inan's 'curious, but not acting', followed to its end."""
+    fates: Counter = Counter()
+    for q in state.questions.values():
+        if not any(": deferred (" in h for h in q.history):
+            continue
+        if q.status == "satisfied":
+            fates["answered while waiting" if q.satisfied_incidentally else "answered after it was pursued again"] += 1
+        elif q.status == "open":
+            fates["pursued again"] += 1
+        elif q.status == "deferred":
+            fates["still waiting"] += 1
+        else:
+            fates[{"faded": "faded", "unanswerable": "let go", "dropped": "let go"}.get(q.status, q.status)] += 1
+    return dict(fates)
 
 
 def write_judge_check(path: Path, episodes: list[Episode], *, seed: str, n: int = 20) -> None:
@@ -444,7 +481,8 @@ def _records_lines(meta: dict[str, Any], m: dict[str, Any]) -> list[str]:
         f"let go {m.get('questions_dropped', 0)}.",
         f"- **Curious, but not acting:** of the curiosities born, {m.get('pursued_at_birth', 0)} were pursued at once and "
         f"{m.get('deferred_at_birth', 0)} deferred; reasons for deferring: {_counts(_reason_words(m.get('deferral_reasons', {})))}; "
-        f"{m.get('pursued_after_waiting', 0)} waiting curiosities were pursued after a text spoke of them.",
+        f"{m.get('pursued_after_waiting', 0)} waiting curiosities were pursued after a text spoke of them. What became of every "
+        f"curiosity it ever deferred: {_counts(m.get('deferred_fates', {}))}.",
         f"- **Attention and transience:** in {m.get('attention_heartbeats', 0)} heartbeats something drew its attention "
         f"({_counts(_attention_words(m.get('attention_events', {})))}); in {m.get('attention_to_curiosity', 0):.0%} of them a "
         f"curiosity was born. Faded {m.get('questions_faded', 0)}; let go because nothing could answer them "

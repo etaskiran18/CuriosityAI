@@ -50,6 +50,17 @@ hour, half of a hand-checked sample of "confirmations" did not support the claim
 Give it only papers up to a year (`--until-year 2020`), let it work, and compare its top questions and
 "possible gaps" with what was published afterwards. Compare `--policy curiosity` with `random`.
 
+**RQ8. Is curiosity better modelled as a drive or as a state with an object?** (v10, see
+[CURIOSITY_RECORDS.md](CURIOSITY_RECORDS.md))
+Compare `--architecture drive` with `--architecture records`, and records with one part switched off
+(`--ablate decision`, `satisfaction`, `attention`, `transience`, `exposure`). Run the trap tests
+(`scripts/trap_tests.py`) for each, and give blind raters questions from each (`scripts/rating_sheet.py`).
+*Expected:* records end more curiosities with a quote the judge accepts, waste fewer looks per answered
+curiosity, are not drawn to scrambled texts, and their questions are rated intellectual curiosity more often.
+
+**RQ9. Is it right to wait?** Fork lives at deferred curiosities (`scripts/fork_life.py`) and count how often
+waiting cost an answer, and how often a waiting curiosity was answered anyway.
+
 ## A 1-hour experiment, step by step
 
 Change one thing only and keep everything else the same: model, seed questions, `--seed`, corpus,

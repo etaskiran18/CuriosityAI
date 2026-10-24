@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import random
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -268,6 +269,16 @@ class LexicalLibrary:
                 break
         return chosen
 
+
+    def sample(self, n: int, *, seed: int = 1) -> list[Observation]:
+        """``n`` passages chosen at random (not the person's own work), for baselines that read without a question."""
+        self._ensure_built()
+        chunks = [c for c in self._chunks if not c.own]
+        picked = random.Random(seed).sample(chunks, min(n, len(chunks)))
+        return [
+            Observation(label="", citation=c.citation, title=c.title, author=c.author, text=c.text, kind=c.kind, note=c.note, own=c.own)
+            for c in picked
+        ]
 
     def passages_from(self, heading: str, *, start: int = 0, k: int = 2) -> list[Observation]:
         """A text's passages in order, from the ``start``-th on (wrapping around): for going back to a text that has

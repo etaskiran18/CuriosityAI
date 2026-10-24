@@ -2,6 +2,16 @@
 
 A local-first research system that tries to make an AI **curious**, not only able to talk about curiosity.
 
+## v10: curiosity records, after İnan and Ady
+
+`--architecture records` models curiosity as a **state with an object**, after İlhan İnan's *The Philosophy
+of Curiosity* (2012) and Ady et al.'s five properties of specific curiosity (2022): each curiosity says what
+exactly is unknown and what would answer it; pursuing it is a **separate decision** ("curious, but not now,
+because ..."); it **ends** when a verified quote answers it, **fades** when attention stays elsewhere, and the
+organism **returns** to texts that made it curious. Each part can be switched off (`--ablate`), and trap tests,
+forking, blind rating sheets and a no-loop baseline help evaluate it. See
+**[docs/CURIOSITY_RECORDS.md](docs/CURIOSITY_RECORDS.md)** and [CHANGELOG_v10.md](CHANGELOG_v10.md).
+
 ## v9: the Curiosity Organism, now measured honestly, and a researcher mode
 
 v1 to v7 ask a language model to write about curiosity and then grade the writing. v8 added an

@@ -257,3 +257,18 @@ def test_the_research_map_shows_curiosities_and_their_end(records):
     text = render_research_map(org)
     assert "## What it is curious about" in text and "## Curiosities that ended" in text
     assert f"**Q1**: {RECORD['unknown']}" in text and "feeling of a philosopher" in text
+
+
+def test_a_session_writes_every_record_and_what_became_of_deferred_ones(records):
+    import json
+
+    org = CuriosityOrganism(records, llm=ScriptedLLM(recognize="no"))
+    waiting = org.state.add_question("Which feeling marks a philosopher?", trigger="gap", importance=0.5)
+    org._apply_record(waiting, dict(_parse_record(RECORD), unknown="the feeling that marks a philosopher and with which philosophy begins"))
+    org._set_status(waiting, "deferred", "I want to come back to it later")
+    report = org.run_session(heartbeats=1)
+    rows = [json.loads(line) for line in (report.directory / "curiosity_records.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {r["id"] for r in rows} == set(org.state.questions)
+    row = next(r for r in rows if r["id"] == waiting.id)
+    assert row["unknown"].startswith("the feeling") and any("deferred" in h for h in row["history"])
+    assert report.metrics["deferred_fates"] == {"pursued again": 1}  # the passages it read spoke of it

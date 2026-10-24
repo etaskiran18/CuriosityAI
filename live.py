@@ -254,6 +254,16 @@ def print_heartbeat(organism: CuriosityOrganism, ep: Episode | None) -> None:
         parts.append(f"+{len(ep.new_question_ids)} question(s)")
     if ep.rejected_quotes:
         parts.append(f"{ep.rejected_quotes} unverifiable quote(s) discarded")
+    # the records architecture
+    if ep.satisfied:
+        parts.append("curiosity ended: " + ", ".join(s["question_id"] + (" (while waiting)" if s.get("incidental") else "") for s in ep.satisfied))
+    deferred = [d["question_id"] for d in ep.decisions if d.get("decision") == "defer"]
+    if deferred:
+        parts.append(f"curious, but waiting: {', '.join(deferred)}")
+    if ep.not_conceived:
+        parts.append(f"{len(ep.not_conceived)} question(s) not born: unknown not named")
+    if ep.faded:
+        parts.append(f"faded: {', '.join(ep.faded)}")
     if ep.status_after != "open":
         parts.append(f"now {ep.status_after}")
     console.print("   " + escape(" | ".join(parts)))
