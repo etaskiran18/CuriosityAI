@@ -1859,6 +1859,10 @@ class CuriosityOrganism:
         q.rest_marker = len(q.visits)
         q.inherited_surprise = max(q.inherited_surprise, 0.5)
         q.last_visited = None
+        if self.cc.records:
+            q.intensity = max(q.intensity, 0.5)  # attention has come back to it
+            if self.cc.on("decision"):
+                self._make_room(q)  # at most max_pursued at once, however a curiosity came back
         self._set_status(q, "open", reason)
 
     def _adopt_question(
@@ -1880,7 +1884,8 @@ class CuriosityOrganism:
             if self.cc.records and existing.status == "satisfied":
                 return existing, "already-satisfied"  # an answered curiosity does not come back by itself
             existing.importance = clamp(max(existing.importance, importance) + 0.05)
-            if existing.status in ("dormant", "deferred"):
+            # a curiosity that waited, rested or faded comes back when something brings it up again
+            if existing.status in ("dormant", "deferred") or (self.cc.records and existing.status == "faded"):
                 self._reopen(existing, f"a new question from {parent_id or 'reflection'} touched it")
                 return existing, "reawakened"
             return existing, "reinforced"
@@ -2559,7 +2564,7 @@ def _parse_record(data: dict[str, Any], question: str = "") -> dict[str, Any] | 
     return {
         "unknown": unknown.rstrip("?").rstrip(),
         "known": known,
-        "answer_form": answer_form,
+        "answer_form": re.sub(r"\s*\.\.\.\s*", " ", answer_form).strip(),  # "saying ... how X" -> "saying how X"
         "interest": _record_text(data.get("interest"), 300, question=question),
         "reachable": reachable,
         "wish": "" if wish is None else ("now" if wish else "later"),

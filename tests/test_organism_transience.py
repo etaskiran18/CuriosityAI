@@ -158,3 +158,25 @@ def test_a_session_reports_attention_and_transience(records):
     assert m["attention_heartbeats"] >= 1 and m["attention_events"].get("novelty", 0) >= 1
     assert 0.0 <= m["attention_to_curiosity"] <= 1.0
     assert "**Attention and transience:**" in report.markdown
+
+
+def test_a_faded_curiosity_comes_back_when_it_is_brought_up_again(records):
+    org = CuriosityOrganism(records, llm=ScriptedLLM())
+    gone = _record(org, "What is the opposite of wonder?", "the feeling opposite to wonder", intensity=0.0)
+    org._set_status(gone, "faded", "my attention stayed elsewhere")
+    q, outcome = org._adopt_question("What is the opposite of wonder?", trigger="gap", parent_id="Q1", importance=0.5, inherited_surprise=0.0)
+    assert q is gone and outcome == "reawakened"
+    assert gone.status == "open" and gone.intensity == pytest.approx(0.5)
+
+
+def test_a_curiosity_that_comes_back_still_respects_the_room(records):
+    records.organism.curiosity.max_pursued = 2
+    org = CuriosityOrganism(records, llm=ScriptedLLM())
+    for q in list(org.state.questions.values()):
+        q.status = "deferred"
+    a = _record(org, "Which feeling marks a philosopher?", "the feeling that marks a philosopher", intensity=0.9)
+    b = _record(org, "Why did Plato call Iris the child of wonder?", "the reason Iris was called the child of wonder", intensity=0.2)
+    waiting = _record(org, "What is the opposite of wonder?", "the feeling opposite to wonder", intensity=0.6)
+    waiting.status = "deferred"
+    org._reopen(waiting, "a new question touched it")
+    assert waiting.status == "open" and b.status == "deferred" and a.status == "open"

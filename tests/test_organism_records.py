@@ -233,6 +233,8 @@ def test_parse_record_refuses_schema_hints_and_keeps_answers():
     assert record["known"] == ["it is loud", "it started last night"]  # one string of lines becomes a list
     assert record["interest"] == "I cannot sleep"  # the field's label copied in front is taken off
     assert record["reachable"] is False and record["wish"] == "" and record["wish_reason"] == ""
+    long = _parse_record({"unknown": "the cause of the noise in the attic", "answer_form": "a text or an observation saying ... what made the noise at night"})
+    assert long["answer_form"] == "a text or an observation saying what made the noise at night"
 
 
 def test_the_prompts_worked_example_copied_back_is_no_record():
