@@ -31,7 +31,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
-from curiosity_ai.config import AppConfig, load_config
+from curiosity_ai.config import CURIOSITY_PARTS, AppConfig, load_config
 from curiosity_ai.llm import OllamaClient
 from curiosity_ai.organism import CuriosityOrganism, OrganismError
 from curiosity_ai.organism.body import Body, SystemSensors
@@ -471,6 +471,12 @@ def main() -> int:
     parser.add_argument("--papers", default=None, metavar="FOLDER", help="Researcher mode: a folder of your papers (PDF, .txt, .md) to read")
     parser.add_argument("--until-year", type=int, default=None, help="Researcher mode: read only papers published up to this year (time-split tests)")
     parser.add_argument("--map", action="store_true", help="Write the research map (research_map.md) now and exit")
+    parser.add_argument("--architecture", choices=["drive", "records"], default=None,
+                        help="How curiosity is modelled: drive (v9, the strongest pull is pursued at once) or records (v10: "
+                             "curiosity is a record of what exactly is unknown; pursuing it is a separate decision)")
+    parser.add_argument("--ablate", default=None, metavar="PARTS",
+                        help="Switch parts of the records architecture off, for experiments: a comma-separated list of "
+                             + ", ".join(CURIOSITY_PARTS))
     args = parser.parse_args()
 
     load_dotenv()
@@ -493,6 +499,19 @@ def main() -> int:
         config.organism.judge.model = args.judge_model
     if args.no_judge:
         config.organism.judge.enabled = False
+    if args.architecture:
+        config.organism.curiosity.architecture = args.architecture
+    if args.ablate:
+        parts = [p.strip().lower() for p in args.ablate.split(",") if p.strip()]
+        unknown = [p for p in parts if p not in CURIOSITY_PARTS]
+        if unknown:
+            console.print(f"[red]--ablate knows only {', '.join(CURIOSITY_PARTS)}; not {', '.join(map(escape, unknown))}.[/red]")
+            return 1
+        if not config.organism.curiosity.records:
+            console.print("[red]--ablate switches off parts of the records architecture: add --architecture records.[/red]")
+            return 1
+        for part in parts:
+            setattr(config.organism.curiosity, part, False)
     if args.topic:
         if not args.home:
             slug = re.sub(r"[^a-z0-9]+", "-", args.topic.lower()).strip("-")[:40].strip("-") or "topic"

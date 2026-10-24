@@ -291,6 +291,41 @@ class LibrarianConfig(BaseModel):
     contact: str = "https://github.com/etaskiran18/CuriosityAI"
 
 
+CURIOSITY_PARTS = ("decision", "satisfaction", "attention", "transience", "exposure")
+
+
+class CuriosityConfig(BaseModel):
+    """How curiosity is modelled (see docs/CURIOSITY_RECORDS.md).
+
+    ``drive`` (v9): each open question has a pull, and the strongest is pursued at once: being curious and
+    acting are the same thing. ``records`` (v10, after Inan 2012 and Ady et al. 2022): curiosity is a state
+    with an object, kept as a record of what exactly is unknown and what would answer it; whether to pursue
+    it now is a separate decision. Each part of ``records`` can be switched off to see what it does.
+    """
+    architecture: str = "drive"  # drive | records
+    decision: bool = True       # a separate decision: pursue now, defer, or let go, with a reason
+    satisfaction: bool = True   # a curiosity ends when a verified quote lets it identify the unknown (model, then judge)
+    attention: bool = True      # surprise and novelty only draw attention; a question is born when an unknown is named
+    transience: bool = True     # a curiosity fades when attention stays elsewhere; unreachable ones are let go
+    exposure: bool = True       # voluntary exposure: in spare time it returns to texts that made it curious
+    max_pursued: int = 6        # curiosities pursued at once; more are deferred
+    satisfaction_checks: int = 1  # besides the heartbeat's own question, curiosities checked against what it read
+    pursuit_limit: int = 6      # looks without finding the answer before a pursued curiosity is deferred
+    intensity_decay: float = 0.9  # per heartbeat, while nothing touches a curiosity
+    fade_below: float = 0.15    # a deferred curiosity this weak has faded
+
+    @property
+    def records(self) -> bool:
+        return self.architecture == "records"
+
+    def on(self, part: str) -> bool:
+        """Is this part of the records architecture at work?"""
+        return self.records and bool(getattr(self, part))
+
+    def ablated(self) -> list[str]:
+        return [part for part in CURIOSITY_PARTS if not getattr(self, part)] if self.records else []
+
+
 class OrganismConfig(BaseModel):
     """v8 curiosity organism: a persistent mind whose behavior is driven by curiosity."""
     home: str = "memory/organism"
@@ -363,6 +398,7 @@ class OrganismConfig(BaseModel):
     # How the next question is chosen: curiosity (the drive), random, or novelty (least visited).
     # The last two are baselines for experiments.
     policy: str = "curiosity"
+    curiosity: CuriosityConfig = Field(default_factory=CuriosityConfig)
 
 
 class ProjectConfig(BaseModel):

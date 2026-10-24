@@ -78,6 +78,7 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
     else:
         lines.append("- none open")
     lines.append("")
+    lines += _curiosity_sections(st)
 
     # Hypotheses: answers that at least one quote the judge accepted supports. (An answer no quote supports
     # is held at 0.5 at most; it stays in the table of open questions above.)
@@ -160,6 +161,39 @@ def render_research_map(organism: "CuriosityOrganism") -> str:
         lines += ["", "## Settled questions", ""]
         lines += [f"- **{q.id}** {q.text} -> {q.answer} (confidence {q.confidence:.2f})" for q in settled]
     return "\n".join(lines) + "\n"
+
+
+_WAITING = {"open": "pursued", "deferred": "waiting", "dormant": "resting"}
+
+
+def _curiosity_sections(st) -> list[str]:
+    """Curiosity records (records architecture): what exactly it does not know, and the curiosities that ended."""
+    alive = [q for q in st.questions.values() if q.has_record and q.status in _WAITING]
+    ended = [q for q in st.questions.values() if q.status == "satisfied" and q.satisfied_by]
+    if not alive and not ended:
+        return []
+    lines = ["## What it is curious about", ""]
+    if alive:
+        alive.sort(key=lambda q: (q.status != "open", -q.intensity))
+        for q in alive[:15]:
+            line = f"- **{q.id}** ({_WAITING[q.status]}): {q.unknown}. *Would be answered by:* {q.answer_form}"
+            if q.status != "open" and q.status_reason:
+                line += f" *Why not now:* {q.status_reason}"
+            lines.append(line)
+    else:
+        lines.append("- nothing open")
+    lines.append("")
+    if ended:
+        lines += ["## Curiosities that ended", "", "A verified quote let it identify what it did not know, and the judge agreed.", ""]
+        for q in sorted(ended, key=lambda q: q.satisfied_at or 0)[-15:]:
+            e = q.satisfied_by[0]
+            waiting = " (while it was pursuing something else)" if q.satisfied_incidentally else ""
+            lines.append(
+                f'- **{q.id}**{waiting}: {q.unknown} - "{one_line(e.quote, 200)}" (*{e.where}*)'
+                + (f" It now says: {q.identified_as}" if q.identified_as else "")
+            )
+        lines.append("")
+    return lines
 
 
 def _contradictions(episodes: list[Episode]) -> dict[str, list[str]]:

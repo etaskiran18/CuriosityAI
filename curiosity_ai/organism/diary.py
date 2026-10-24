@@ -77,6 +77,9 @@ class Diary:
         if len(ranking) > 1:
             others = ", ".join(f"{qid} {score:.2f}" for qid, score in ranking[1:4])
             lines.append(f"*Other pulls:* {others}")
+        if q is not None and q.has_record:
+            made = " *(I made it precise just now.)*" if ep.conceived else ""
+            lines.append(f"*What I want to know:* {q.unknown}. *It would be answered by:* {q.answer_form}{made}")
         lines += ["", f"**Before looking** (confidence {ep.prior_confidence:.2f}): {ep.prior_answer or 'I had no answer yet.'}"]
         if ep.predictions:
             lines.append("")
@@ -151,10 +154,31 @@ class Diary:
         if ep.agreed_doubt_ids:
             ids = ", ".join(f"**{bid}**" for bid in ep.agreed_doubt_ids)
             lines.append(f"- I wanted to doubt {ids}, but a quote the judge accepted just now says much the same: no reason for doubt.")
+        for entry in ep.satisfied:
+            while_waiting = " *(while I was reading for another question)*" if entry.get("incidental") else ""
+            lines.append(
+                f"- **Curiosity satisfied: {entry.get('question_id')}**{while_waiting}. What I did not know: {entry.get('unknown')}. "
+                f'*{entry.get("source")}* says: "{one_line(entry.get("quote", ""), 240)}"'
+                + (f" Now I can say: {entry.get('answer')}" if entry.get("answer") else "")
+            )
+        for entry in ep.satisfaction_refused:
+            lines.append(
+                f"- I thought a passage answered {entry.get('question_id')}, but {entry.get('why')}: "
+                f'"{one_line(entry.get("quote", ""), 200)}" - it stays open.'
+            )
         for qid in ep.new_question_ids:
             nq = state.questions.get(qid)
             if nq:
                 lines.append(f"- New question **{qid}** ({nq.trigger}): {nq.text}")
+                if nq.has_record:
+                    lines.append(f"  - *What I do not know:* {nq.unknown}. *It would be answered by:* {nq.answer_form}"
+                                 + (f" *Why it matters:* {nq.interest}" if nq.interest else ""))
+        for text in ep.not_conceived:
+            lines.append(f"- This caught my attention, but I could not say what exactly I do not know, so no question was born: {text}")
+        for qid in ep.already_satisfied:
+            done = state.questions.get(qid)
+            if done:
+                lines.append(f"- Not asked again: **{qid}** already ended when a text let me identify what I did not know.")
         for qid in ep.reawakened_question_ids:
             nq = state.questions.get(qid)
             if nq:
@@ -181,13 +205,17 @@ class Diary:
             lines.append(f"- *Trouble this heartbeat:* {'; '.join(ep.errors)}")
         self._append("\n".join(lines))
 
-    def noticed(self, title: str, question_ids: list[str], state: MindState) -> None:
+    def noticed(self, title: str, question_ids: list[str], state: MindState, *, unconceived: list[str] | None = None) -> None:
         lines = [f"## A human shared something: *{title}*", ""]
         for qid in question_ids:
             q = state.questions.get(qid)
             if q:
                 lines.append(f"- It made me wonder (**{qid}**): {q.text}")
-        if not question_ids:
+                if q.has_record:
+                    lines.append(f"  - *What I do not know:* {q.unknown}. *It would be answered by:* {q.answer_form}")
+        for text in unconceived or []:
+            lines.append(f"- It caught my attention, but I could not say what exactly I do not know: {text}")
+        if not question_ids and not unconceived:
             lines.append("- I read it, but no new question came to me yet.")
         self._append("\n".join(lines))
 

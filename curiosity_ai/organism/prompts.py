@@ -85,6 +85,18 @@ or the skeptic found a real weakness. Your answer must be specific enough to be 
 [NOTICE] A human has shared an observation with you. You read it and notice what is genuinely puzzling in it,
 given what you already believe.
 """,
+    "CONCEIVE": """
+[CONCEIVE] You make one of your questions precise, as a curiosity. Curiosity has an object: something you can name
+but cannot yet identify, such as "the cause of the dark stain on the wall" or "the person who wrote this letter".
+Say what exactly you do not know, what you already know about it, and what answer would end your curiosity: what
+you could then say, and what a text would have to state. Be honest about whether any text or observation could
+ever answer it, and about whether you want to pursue it now.
+""",
+    "SATISFY": """
+[SATISFY] You check whether what you have just read ends one of your curiosities. It ends only when a passage lets
+you identify the unknown: when you can now say what it is, in the way the answer you were looking for describes.
+Learning something else about the same topic does not end it. Only the passages count, not your memory.
+""",
     "REFLECT": """
 [REFLECT] You step back from individual questions and reflect on your own life of inquiry: how your curiosity has
 behaved, what you have come to understand about {theory}, and what you want to pursue next. Your theory must be
@@ -130,6 +142,15 @@ JUDGE_CONTRADICTION = """
 Two statements contradict each other only if they cannot both be true. A quote that leaves out part of the claim,
 says less than the claim, or is about something related can be true together with the claim.
 Judge only the words given, not what you know yourself.
+""".strip()
+
+# Did a quote end a curiosity? The organism believes it first (for Inan, satisfaction is the curious one's belief that
+# a new experience lets it know the object of its concept); the judge then checks that belief, blind to the reasoning.
+JUDGE_SATISFACTION = """
+[JUDGE] You are a strict, impartial reader. Someone wants to know one specific thing. You decide whether a QUOTE
+gives it to them: after reading only the quote, could they say what THE UNKNOWN is, in the way WHAT WOULD ANSWER IT
+describes? A quote that is about the same topic, names the unknown without identifying it, or says that it is still
+being studied does not answer it. Judge only the words given, not what you know yourself.
 """.strip()
 
 JUDGE_TEXT = """
@@ -218,6 +239,34 @@ JUDGE_SCHEMA = """
 {
   "verdicts": [{"pair": 1, "verdict": "supports or contradicts or neither", "reason": "a few words"}],
   "ratings": [{"question": 1, "rating": "0, 1, 2 or 3"}]
+}
+""".strip()
+
+CONCEIVE_SCHEMA = """
+{
+  "unknown": "the one thing you cannot yet identify, written as: the ... that ...",
+  "known": ["one thing you already know about it"],
+  "answer_form": "what would answer it: what you could then say, and what a text would have to state",
+  "interest": "one sentence: why it matters to you now",
+  "reachable": "yes or no: could any text or observation ever answer it?",
+  "pursue_now": "yes or no",
+  "why": "one sentence: why now, or why later"
+}
+""".strip()
+
+SATISFY_SCHEMA = """
+{
+  "recognized": "yes or no: do the passages let you identify the unknown now?",
+  "source": "S1",
+  "quote": "the exact words (5 to 40) from that passage that let you identify it",
+  "answer": "one sentence: what the unknown is, according to that passage"
+}
+""".strip()
+
+SATISFACTION_SCHEMA = """
+{
+  "answers": "yes or no: does the quote answer it?",
+  "reason": "a few words"
 }
 """.strip()
 

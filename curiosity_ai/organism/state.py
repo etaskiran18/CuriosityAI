@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field
 
 from ..schema import utc_now_iso
 
-QuestionStatus = Literal["open", "settled", "dormant", "unanswerable"]
+# open: pursued. settled: confident and no longer surprised (v9). dormant: resting after looks without progress (v9).
+# unanswerable: no text or observation could answer it. In the records architecture (v10): deferred (still curious,
+# not pursued now), satisfied (a verified quote let it identify the unknown), faded (attention stayed elsewhere
+# until the curiosity was gone) and dropped (let go for another reason).
+QuestionStatus = Literal["open", "settled", "dormant", "unanswerable", "deferred", "satisfied", "faded", "dropped"]
+CLOSED_STATUSES: tuple[str, ...] = ("settled", "satisfied", "unanswerable", "faded", "dropped")
 Trigger = Literal["seed", "human", "observation", "surprise", "contradiction", "gap", "objection", "reflection"]
 TRIGGERS: tuple[str, ...] = ("seed", "human", "observation", "surprise", "contradiction", "gap", "objection", "reflection")
 
@@ -70,10 +75,35 @@ class Question(BaseModel):
     # None: not rated yet; it is then estimated from the topic's words.
     relevance: float | None = None
 
+    # The curiosity record (records architecture). Curiosity has an object: something it can name but cannot yet
+    # identify, Inan's "inostensible concept" ("the person who murdered Jones"). The question expresses it; the
+    # record says what exactly is unknown and what would end the curiosity.
+    unknown: str = ""  # the thing it cannot yet identify: "the ... that ..."
+    known: list[str] = Field(default_factory=list)  # what it already knows about that thing
+    answer_form: str = ""  # what would answer it: a mechanism, a number, a name ... and what a text would have to say
+    interest: str = ""  # why it matters now (for Inan, awareness of an unknown is not curiosity without interest)
+    reachable: bool | None = None  # could any text or observation ever answer it? (None: not asked)
+    wish: str = ""  # what it wanted when the curiosity was born: "now" or "later"
+    wish_reason: str = ""
+    intensity: float = 0.0  # 0..1: how strongly it is curious now
+    touched_at: int | None = None  # the last heartbeat something touched its object
+    decision: str = ""  # pursue | defer | drop
+    decision_reason: str = ""
+    decided_at: int | None = None
+    satisfied_by: list[Evidence] = Field(default_factory=list)  # the words that let it identify the unknown
+    identified_as: str = ""  # what it then said the unknown is, in its own words
+    satisfied_at: int | None = None
+    satisfied_incidentally: bool = False  # satisfied while it was not being pursued (read for another question)
+    origin_sources: list[str] = Field(default_factory=list)  # the texts whose reading awakened it
+
     @property
     def active_visits(self) -> list[Visit]:
         """Visits since the question last woke from dormancy."""
         return self.visits[self.rest_marker:]
+
+    @property
+    def has_record(self) -> bool:
+        return bool(self.unknown and self.answer_form)
 
 
 class Belief(BaseModel):
@@ -190,6 +220,12 @@ class Episode(BaseModel):
     set_aside_questions: list[str] = Field(default_factory=list)  # proposed, but off the topic
     held_back_questions: list[str] = Field(default_factory=list)  # proposed without a reason yet (see organism._births)
     unknowable_questions: list[str] = Field(default_factory=list)  # about things nobody has identified: no text can answer
+    # The records architecture
+    conceived: bool = False  # the heartbeat's question received its record now
+    not_conceived: list[str] = Field(default_factory=list)  # proposed, but it could not say what exactly it does not know
+    satisfied: list[dict[str, Any]] = Field(default_factory=list)  # curiosities a verified quote ended this heartbeat
+    satisfaction_refused: list[dict[str, Any]] = Field(default_factory=list)  # it believed so; the judge did not
+    already_satisfied: list[str] = Field(default_factory=list)  # proposed again, though an earlier curiosity already ended
     relevance: float = 1.0  # how on topic the question of this heartbeat was
     status_after: str = "open"
     policy: str = "curiosity"

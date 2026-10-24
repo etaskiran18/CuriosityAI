@@ -42,7 +42,7 @@ from ..utils import strip_front_matter, write_jsonl
 from . import prompts as P
 from .body import Body, Rest
 from .diary import Diary
-from .judge import Judge, Pair, Verdict
+from .judge import Judge, Pair, Verdict, yes_no
 from .librarian import Librarian, ReadingWish
 from .papers import opening, read_paper
 from .drive import (
@@ -59,7 +59,20 @@ from .drive import (
     regulate,
 )
 from .senses import Observation, Senses, write_inbox_item
-from .state import TRIGGERS, Belief, Episode, Evidence, MindState, Question, Temperament, Topic, Visit, load_mind, save_mind
+from .state import (
+    CLOSED_STATUSES,
+    TRIGGERS,
+    Belief,
+    Episode,
+    Evidence,
+    MindState,
+    Question,
+    Temperament,
+    Topic,
+    Visit,
+    load_mind,
+    save_mind,
+)
 from .textutil import (
     clip,
     asks_about_the_unknown,
@@ -246,6 +259,7 @@ class CuriosityOrganism:
     ):
         self.config = config
         self.oc = config.organism
+        self.cc = self.oc.curiosity  # how curiosity is modelled: the v9 drive, or v10 curiosity records
         self.home = Path(self.oc.home)
         self.home.mkdir(parents=True, exist_ok=True)
         self.mind_path = self.home / "mind.json"
@@ -609,6 +623,8 @@ class CuriosityOrganism:
             ((r.question_id, r.total) for r in readings if r.question_id != chosen.question_id),
             key=lambda item: -item[1],
         )
+        # A question it started with, was asked, or chose in a reflection has no record yet: it is made precise now.
+        conceived = self.cc.records and not q.has_record and self._conceive_question(q, errors)
 
         related = self._related_beliefs(f"{q.text} {q.answer}", limit=5, include=q.related_beliefs)
         anticipation = self._anticipate(q, related, errors)
@@ -643,6 +659,9 @@ class CuriosityOrganism:
         episode = self._integrate(
             q, chosen, prior_answer, prior_confidence, anticipation, observations, comparison, dialogue, settlement, related, judgments, errors
         )
+        episode.conceived = conceived
+        if self.cc.on("satisfaction"):
+            self._satisfaction(q, episode, observations, errors)
         self._maybe_visit_library(q, episode, errors)
         self._record(episode, comparison, observations)
         self.diary.heartbeat(episode, st, ranking)
@@ -983,6 +1002,162 @@ class CuriosityOrganism:
         data = self._json(self._sys("SETTLE"), user, P.SETTLE_SCHEMA, temperature=0.2, errors=errors, step="settle")
         return _parse_settlement(data)
 
+    # -- curiosity records (the records architecture) --------------------------
+    #
+    # Inan (2012): curiosity has an object, an "inostensible concept" of something one can name but not yet
+    # identify; it is satisfied when one comes to believe that a new experience lets one know that object.
+    # Ady et al. (2022): the situation that makes one curious differs from the one that satisfies it, and
+    # curiosity ends once satisfied. A question expresses a curiosity; its record says what exactly is unknown
+    # and what would end it.
+
+    def _conceive(self, text: str, *, context: str = "", errors: list[str]) -> dict[str, Any] | None:
+        """Make a question precise as a curiosity. None when the model cannot say what exactly it does not know."""
+        related = self._related_beliefs(text, limit=4)
+        user = (
+            f"Your main topic: {self.state.topic.title}\n\n"
+            f"Your question: {text}\n\n"
+            + (f"What drew your attention:\n{context}\n\n" if context else "")
+            + f"What you already believe that seems related:\n{self._format_beliefs(related)}\n\n"
+            "Describe this curiosity:\n"
+            '- unknown: the one thing you cannot yet identify, written as "the ... that ...", not as a question\n'
+            "- known: 1 to 3 things you already know about it\n"
+            "- answer_form: what would answer it: what you could then say, and what a text would have to state "
+            "(a mechanism, a number, a condition, a name, ...)\n"
+            "- interest: one sentence: why it matters to you now\n"
+            "- reachable: yes or no: could any text or observation ever answer it?\n"
+            "- pursue_now: yes or no: do you want to pursue it now?\n"
+            "- why: one sentence: why now, or why later"
+        )
+        data = self._json(self._sys("CONCEIVE"), user, P.CONCEIVE_SCHEMA, temperature=0.3, errors=errors, step="conceive")
+        return _parse_record(data)
+
+    def _conceive_question(self, q: Question, errors: list[str], *, context: str = "") -> bool:
+        """Give a question its record. False if the model could not say what exactly it does not know: the question
+        stays, but without a record nothing can satisfy it."""
+        record = self._conceive(q.text, context=context, errors=errors)
+        if record is None:
+            return False
+        self._apply_record(q, record)
+        return True
+
+    def _apply_record(self, q: Question, record: dict[str, Any]) -> None:
+        q.unknown, q.answer_form, q.interest = record["unknown"], record["answer_form"], record["interest"]
+        q.known = list(record["known"])
+        q.reachable = record["reachable"]
+        q.wish, q.wish_reason = record["wish"], record["wish_reason"]
+        q.intensity = max(q.intensity, clamp(0.5 + 0.5 * q.importance))
+        q.touched_at = self.state.heartbeat
+
+    def _is_new_question(self, text: str) -> bool:
+        cleaned = _clean_question(text)
+        return bool(cleaned) and self._find_similar_question(cleaned) is None
+
+    def _attention_context(
+        self, comparison: Comparison, anticipation: Anticipation, dialogue: list[dict[str, str]], observations: list[Observation], *, trigger: str
+    ) -> str:
+        """What drew its attention in this heartbeat, for making a new question precise."""
+        by_label = {o.label: o for o in observations}
+        lines = []
+        for c in comparison.checks:
+            if c.status == "contradicted" and c.quote and 1 <= c.expectation <= len(anticipation.predictions):
+                obs = by_label.get(c.source)
+                lines.append(
+                    f'- You expected "{one_line(anticipation.predictions[c.expectation - 1].claim, 160)}", but '
+                    f'{obs.heading if obs else c.source} says: "{one_line(c.quote, 200)}"'
+                )
+        for u in comparison.unexpected:
+            obs = by_label.get(u["source"])
+            lines.append(f'- Unexpected, in {obs.heading if obs else u["source"]}: "{one_line(u["quote"], 200)}"')
+        if trigger == "objection":
+            skeptic = next((t["text"] for t in reversed(dialogue) if t.get("voice") == "Skeptic"), "")
+            if skeptic:
+                lines.append(f"- The skeptic objected: {one_line(skeptic, 300)}")
+        return "\n".join(lines[:3])
+
+    def _satisfaction(self, q: Question, episode: Episode, observations: list[Observation], errors: list[str]) -> None:
+        """Did what it read end a curiosity? Its own question first, then up to ``satisfaction_checks`` others whose
+        object the passages touch: a curiosity it is not pursuing can end too, when the answer comes along."""
+        readable = [o for o in observations if not (o.own and not self.oc.research.own_work_is_evidence)]
+        if not readable:
+            return
+        candidates: list[tuple[Question, bool]] = []
+        if q.has_record and q.status not in CLOSED_STATUSES:
+            candidates.append((q, False))
+        others = self._touched_records(readable, exclude=q.id)[: max(0, self.cc.satisfaction_checks)]
+        candidates += [(other, True) for other in others]
+        for record, incidental in candidates:
+            self._check_satisfaction(record, episode, readable, errors, incidental=incidental)
+        episode.status_after = q.status
+
+    def _touched_records(self, observations: list[Observation], *, exclude: str = "") -> list[Question]:
+        """Open or waiting curiosities whose object the passages speak of (most of its own words in them)."""
+        read = token_set(" ".join(o.text for o in observations))
+        scored: list[tuple[float, Question]] = []
+        for other in self.state.questions.values():
+            if other.id == exclude or not other.has_record or other.status in CLOSED_STATUSES:
+                continue
+            words = token_set(other.unknown) - self.topic_words
+            if len(words) < 2:
+                continue
+            share = len(words & read) / len(words)
+            if share >= 0.5:
+                scored.append((share, other))
+        return [other for _, other in sorted(scored, key=lambda item: -item[0])]
+
+    def _check_satisfaction(
+        self, record: Question, episode: Episode, observations: list[Observation], errors: list[str], *, incidental: bool
+    ) -> None:
+        passages = "\n\n".join(f"[{o.label}] {o.heading}\n{clip(o.text, 900)}" for o in observations)
+        known = "\n".join(f"- {k}" for k in record.known) or "- nothing yet"
+        user = (
+            f"Your curiosity ({record.id}): {record.text}\n\n"
+            f"What you do not know: {record.unknown}\n\n"
+            f"What you already knew about it:\n{known}\n\n"
+            f"What would answer it: {record.answer_form}\n\n"
+            f"Passages you have just read:\n\n{passages}\n\n"
+            "Do these passages let you identify the unknown now? If yes, give the label of the passage that does it, copy "
+            "the exact words (5 to 40) that let you identify it, and say in one sentence what the unknown is."
+        )
+        data = self._json(self._sys("SATISFY"), user, P.SATISFY_SCHEMA, temperature=0.1, errors=errors, step="satisfy")
+        if yes_no(data.get("recognized")) is not True:
+            return
+        label, quote = _locate_quote(data.get("source"), data.get("quote"), observations)
+        obs = next((o for o in observations if o.label == label), None)
+        answer = _statement(one_line(_as_str(data.get("answer")), 400))
+        entry = {
+            "question_id": record.id, "unknown": record.unknown, "source": obs.heading if obs else label,
+            "quote": quote or one_line(_as_str(data.get("quote")), 300), "answer": answer, "incidental": incidental,
+        }
+        if quote is None or obs is None or len(quote.split()) < 5:
+            episode.satisfaction_refused.append({**entry, "why": "the words it quoted are not in the passage"})
+            return
+        if self.judge is None:
+            verdict = Verdict("supports", "no judge: it grades itself")
+        else:
+            verdict = self.judge.satisfies(record.unknown, record.answer_form, quote, obs.heading, errors=errors)
+            episode.judgments.append({
+                "kind": "satisfaction", "claim": f"{record.unknown} (answered by: {record.answer_form})", "quote": quote,
+                "source": obs.heading, "agent": "satisfied", "judge": verdict.verdict, "reason": verdict.reason,
+            })
+        if verdict.verdict != "supports":
+            why = "the judge could not check it" if verdict.verdict == "unjudged" else f"the judge did not accept it: {verdict.reason or 'no reason given'}"
+            episode.satisfaction_refused.append({**entry, "why": why})
+            return
+        self._end_curiosity(record, obs, quote, answer, incidental=incidental)
+        episode.satisfied.append(entry)
+
+    def _end_curiosity(self, q: Question, obs: Observation, quote: str, answer: str, *, incidental: bool) -> None:
+        """Cessation when satisfied (Ady et al.): the curiosity ends and is not pursued again."""
+        evidence = Evidence(citation=obs.citation, quote=quote, source_title=obs.heading)
+        q.satisfied_by = [evidence]
+        q.satisfied_at = self.state.heartbeat
+        q.satisfied_incidentally = incidental
+        q.identified_as = answer
+        if all(e.quote != quote for e in q.support):
+            q.support = (q.support + [evidence])[-4:]
+        q.intensity = 0.0
+        self._set_status(q, "satisfied", f'"{one_line(quote, 160)}" ({obs.heading}) let me identify it')
+
     # -- learning from the episode --------------------------------------------
 
     def _integrate(
@@ -1182,7 +1357,7 @@ class CuriosityOrganism:
             belief.history.append(f"hb {hb}: contradicted while investigating {q.id}")
             doubted.append(bid)
             for other in st.questions.values():
-                if other.status == "settled" and bid in other.related_beliefs:
+                if other.status in ("settled", "satisfied") and bid in other.related_beliefs:
                     self._reopen(other, f"belief {bid}, which it relied on, was contradicted")
 
         # At most one new question is born, the one closest to the main topic, and only with a
@@ -1209,6 +1384,9 @@ class CuriosityOrganism:
                 set_aside.append(one_line(nq.text, 200))
                 continue
             candidates.append((relevance, nq))
+        not_conceived: list[str] = []
+        already: list[str] = []
+        attempts = 0
         for relevance, nq in sorted(candidates, key=lambda item: -item[0]):
             if len(born) >= oc.max_new_questions_per_heartbeat:
                 break
@@ -1216,6 +1394,18 @@ class CuriosityOrganism:
             if not _may_be_born(trigger, second_look=second_look, skeptic_quoted=skeptic_quoted):
                 held_back.append(one_line(nq.text, 200))
                 continue
+            record = None
+            if self.cc.records and self._is_new_question(nq.text):
+                # A question is born only when it can say what exactly it does not know (Inan's inostensible
+                # concept) and what would answer it. Two tries at most: making a question precise costs a call.
+                if attempts >= 2:
+                    break
+                attempts += 1
+                context = self._attention_context(comparison, anticipation, dialogue, observations, trigger=trigger)
+                record = self._conceive(nq.text, context=context, errors=errors)
+                if record is None:
+                    not_conceived.append(one_line(nq.text, 200))
+                    continue
             question, outcome = self._adopt_question(
                 nq.text,
                 trigger=trigger,
@@ -1223,11 +1413,14 @@ class CuriosityOrganism:
                 importance=min(nq.importance, q.importance),  # a child does not matter more than its parent
                 inherited_surprise=error,
                 relevance=relevance,
+                record=record,
             )
             if question is not None and outcome == "new":
                 born.append(question.id)
             elif question is not None and outcome == "reawakened":
                 woke.append(question.id)
+            elif question is not None and outcome == "already-satisfied":
+                already.append(question.id)
 
         self._update_status(q, settlement)
         self._limit_open_questions()
@@ -1277,6 +1470,8 @@ class CuriosityOrganism:
             set_aside_questions=set_aside,
             held_back_questions=held_back,
             unknowable_questions=unknowable,
+            not_conceived=not_conceived,
+            already_satisfied=already,
             relevance=chosen.relevance,
             status_after=q.status,
             policy=oc.policy,
@@ -1377,10 +1572,17 @@ class CuriosityOrganism:
         silent = sum(v.informativeness for v in active) / len(active) < 0.35 if active else False
         if settlement.unanswerable and len(active) >= 2 and silent:
             self._set_status(q, "unanswerable", "the texts stay silent and the question may exceed what evidence can settle (Kant's limit)")
-        elif q.confidence >= oc.settle_confidence and active and active[-1].prediction_error <= oc.settle_max_error and len(active) >= 2:
+        elif (
+            not self.cc.on("satisfaction")  # with curiosity records, a curiosity ends when a quote answers it, not by confidence
+            and q.confidence >= oc.settle_confidence and active and active[-1].prediction_error <= oc.settle_max_error and len(active) >= 2
+        ):
             self._set_status(q, "settled", f"confident ({q.confidence:.2f}) and no longer surprised: doubt is appeased (Peirce)")
         elif bored >= 0.9:
-            self._set_status(q, "dormant", f"{len(active)} visits without learning progress; resting until new knowledge arrives")
+            self._set_status(q, self._resting_status(), f"{len(active)} visits without learning progress; resting until new knowledge arrives")
+
+    def _resting_status(self) -> str:
+        """A question it stops pursuing for now: v9 calls it dormant; with curiosity records it is deferred."""
+        return "deferred" if self.cc.records else "dormant"
 
     def _set_status(self, q: Question, status: str, reason: str) -> None:
         q.status = status  # type: ignore[assignment]
@@ -1388,7 +1590,7 @@ class CuriosityOrganism:
         q.status_changed_at = self.state.heartbeat
 
     def _reopen(self, q: Question, reason: str) -> None:
-        if q.status == "settled":
+        if q.status in ("settled", "satisfied"):
             q.confidence = max(0.2, q.confidence - 0.15)
         q.rest_marker = len(q.visits)
         q.inherited_surprise = max(q.inherited_surprise, 0.5)
@@ -1404,14 +1606,17 @@ class CuriosityOrganism:
         importance: float,
         inherited_surprise: float,
         relevance: float | None = None,
+        record: dict[str, Any] | None = None,
     ) -> tuple[Question | None, str]:
         text = _clean_question(text)
         if not text:
             return None, "rejected"
         existing = self._find_similar_question(text)
         if existing is not None:
+            if self.cc.records and existing.status == "satisfied":
+                return existing, "already-satisfied"  # an answered curiosity does not come back by itself
             existing.importance = clamp(max(existing.importance, importance) + 0.05)
-            if existing.status == "dormant":
+            if existing.status in ("dormant", "deferred"):
                 self._reopen(existing, f"a new question from {parent_id or 'reflection'} touched it")
                 return existing, "reawakened"
             return existing, "reinforced"
@@ -1424,6 +1629,8 @@ class CuriosityOrganism:
             inherited_surprise=clamp(inherited_surprise),
             relevance=None if relevance is None else clamp(relevance),
         )
+        if record is not None:
+            self._apply_record(q, record)
         return q, "new"
 
     def _limit_open_questions(self) -> list[str]:
@@ -1438,14 +1645,14 @@ class CuriosityOrganism:
             q = self.state.questions[reading.question_id]
             if q.trigger == "human":
                 continue
-            self._set_status(q, "dormant", "too many open questions; letting the weakest pull rest")
+            self._set_status(q, self._resting_status(), "too many open questions; letting the weakest pull rest")
             rested.append(q.id)
         return rested
 
     def _incubate(self, force: bool = False) -> list[str]:
         """Dormant questions wake when enough new related knowledge has arrived (Wallas's incubation)."""
         woke: list[str] = []
-        dormant = [q for q in self.state.questions.values() if q.status == "dormant"]
+        dormant = [q for q in self.state.questions.values() if q.status in ("dormant", "deferred")]
         for q in dormant:
             fresh = [
                 b for b in self.state.held_beliefs()
@@ -1512,14 +1719,22 @@ class CuriosityOrganism:
             )
             data = self._json(self._sys("NOTICE"), user, P.NOTICE_SCHEMA, temperature=0.5, errors=errors, step="notice")
             ids: list[str] = []
+            unconceived: list[str] = []
             for item in _as_list(data.get("questions"))[:2]:
                 text, importance = _question_fields(item)
+                record = None
+                if self.cc.records and self._is_new_question(text):
+                    record = self._conceive(text, context=f'- A person shared "{title}" with you.', errors=errors)
+                    if record is None:
+                        unconceived.append(one_line(text, 200))
+                        continue
                 q, outcome = self._adopt_question(
-                    text, trigger="observation", parent_id=None, importance=max(0.7, importance), inherited_surprise=0.5
+                    text, trigger="observation", parent_id=None, importance=max(0.7, importance), inherited_surprise=0.5,
+                    record=record,
                 )
                 if q is not None and outcome in ("new", "reawakened"):
                     ids.append(q.id)
-            self.diary.noticed(title, ids, self.state)
+            self.diary.noticed(title, ids, self.state, unconceived=unconceived)
 
     # -- reflection --------------------------------------------------------------
 
@@ -2024,6 +2239,39 @@ def _parse_settlement(data: dict[str, Any]) -> Settlement:
         unanswerable=unanswerable is True or _as_str(unanswerable).strip().lower() == "true",
         insight=one_line(_as_str(data.get("insight")), 400),
     )
+
+
+# Schema hints a small model copies back instead of answering.
+_RECORD_ECHOES = (
+    "the one thing you cannot", "the thing you cannot", "what would answer it", "one thing you already know",
+    "one sentence", "yes or no", "the ... that",
+)
+
+
+def _record_text(value: Any, limit: int, *, min_words: int = 3) -> str:
+    text = one_line(_as_str(value).strip().strip('"').strip("“”"), limit)
+    if len(text.split()) < min_words or text.lower().startswith(_RECORD_ECHOES):
+        return ""
+    return text
+
+
+def _parse_record(data: dict[str, Any]) -> dict[str, Any] | None:
+    """A curiosity record from the model's reply; None when it did not say what is unknown and what would answer it."""
+    unknown = _record_text(data.get("unknown") or data.get("object"), 300)
+    answer_form = _record_text(data.get("answer_form") or data.get("would_answer_it"), 300)
+    if not unknown or not answer_form:
+        return None
+    known = [k for k in (_record_text(item, 240) for item in _texts(data.get("known"), ("fact", "known", "text"))) if k][:3]
+    wish = yes_no(data.get("pursue_now"))
+    return {
+        "unknown": unknown.rstrip("?").rstrip(),
+        "known": known,
+        "answer_form": answer_form,
+        "interest": _record_text(data.get("interest"), 300),
+        "reachable": yes_no(data.get("reachable")),
+        "wish": "" if wish is None else ("now" if wish else "later"),
+        "wish_reason": _record_text(data.get("why"), 300),
+    }
 
 
 _SECOND_QUESTION = re.compile(

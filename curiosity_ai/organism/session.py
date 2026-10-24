@@ -92,6 +92,8 @@ class Session:
             "ended_at": utc_now_iso(),
             "model": org.config.llm.model,
             "policy": org.oc.policy,
+            "architecture": org.oc.curiosity.architecture,
+            "ablated": org.oc.curiosity.ablated(),
             "random_seed": org.oc.random_seed,
             "web": bool(org.librarian),
             "judge_model": (org.oc.judge.model or org.config.llm.model) if org.judge is not None else None,
@@ -161,6 +163,13 @@ def compute_metrics(
     def status_delta(kind: str, status: str) -> int:
         return after[kind].get(status, 0) - before[kind].get(status, 0)
 
+    satisfied = [s for e in episodes for s in e.satisfied]
+    looks = []
+    for s in satisfied:
+        q = state.questions.get(s.get("question_id", ""))
+        if q is not None and q.satisfied_at is not None:
+            looks.append(sum(1 for v in q.visits if v.heartbeat <= q.satisfied_at))
+
     return {
         "minutes": round(seconds / 60, 1),
         "heartbeats": n,
@@ -174,6 +183,19 @@ def compute_metrics(
         "questions_settled": max(0, status_delta("questions", "settled")),
         "questions_dormant": max(0, status_delta("questions", "dormant")),
         "questions_unanswerable": max(0, status_delta("questions", "unanswerable")),
+        # the records architecture (zero under the drive)
+        "questions_deferred": max(0, status_delta("questions", "deferred")),
+        "questions_satisfied": max(0, status_delta("questions", "satisfied")),
+        "questions_faded": max(0, status_delta("questions", "faded")),
+        "questions_dropped": max(0, status_delta("questions", "dropped")),
+        "records_made": sum(1 for e in episodes if e.conceived)
+        + sum(1 for qid in born if qid in state.questions and state.questions[qid].has_record),
+        "records_not_made": sum(len(e.not_conceived) for e in episodes),
+        "curiosities_satisfied": len(satisfied),
+        "satisfied_while_waiting": sum(1 for s in satisfied if s.get("incidental")),
+        "satisfaction_refused": sum(len(e.satisfaction_refused) for e in episodes),
+        "already_satisfied_not_asked": sum(len(e.already_satisfied) for e in episodes),
+        "looks_to_satisfaction": _mean(looks),
         "beliefs_new": sum(len(e.new_belief_ids) for e in episodes),
         "beliefs_grounded": sum(e.grounded_new_beliefs for e in episodes),
         "beliefs_interpretive": sum(len(e.new_belief_ids) - e.grounded_new_beliefs for e in episodes),
@@ -261,10 +283,13 @@ def write_judge_check(path: Path, episodes: list[Episode], *, seed: str, n: int 
 
 def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episode], state: MindState, before: dict[str, Any], after: dict[str, Any]) -> str:
     limit = f", time limit {meta['time_limit_minutes']:g} min" if meta.get("time_limit_minutes") else ""
+    architecture = meta.get("architecture", "drive")
+    if meta.get("ablated"):
+        architecture += f" (without: {', '.join(meta['ablated'])})"
     lines = [
         f"# Session {meta['session_id']}",
         "",
-        f"Model `{meta['model']}`, judge `{meta.get('judge_model') or 'off'}`, policy **{meta['policy']}**, "
+        f"Model `{meta['model']}`, judge `{meta.get('judge_model') or 'off'}`, curiosity **{architecture}**, policy **{meta['policy']}**, "
         f"web library {'on' if meta['web'] else 'off'}, seed {meta['random_seed']}{limit}. Life: `{meta['home']}`.",
         "",
         "## Summary",
@@ -274,6 +299,7 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
         f"- **Questions:** visited {m['distinct_questions']}; new questions born: {m['questions_born']} "
         f"({_counts(m['questions_born_by_trigger'])}); settled {m['questions_settled']}, dormant {m['questions_dormant']}, "
         f"judged unanswerable {m['questions_unanswerable']}.",
+        *_records_lines(meta, m),
         f"- **Beliefs:** new {m['beliefs_new']} ({m['beliefs_grounded']} grounded in verified quotes, "
         f"{m['beliefs_interpretive']} interpretations); earlier beliefs doubted {m['beliefs_doubted']}, "
         f"doubts refused because no text contradicted the belief {m.get('paper_doubts', 0)}; reinforced {m['beliefs_reinforced']}.",
@@ -320,6 +346,15 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
     if grounded:
         lines += ["", "## New beliefs grounded in the texts", ""]
         lines += [f'- **{bid}** {b.statement} - "{one_line(b.evidence[0].quote, 200)}" (*{b.evidence[0].where}*)' for bid, b in grounded[:10]]
+    ended = [(e.heartbeat, s) for e in episodes for s in e.satisfied]
+    if ended:
+        lines += ["", "## Curiosities that ended", "", "A verified quote let it identify what it did not know; the judge agreed.", ""]
+        for hb, s in ended[:12]:
+            waiting = " (while it was not pursuing it)" if s.get("incidental") else ""
+            lines.append(
+                f"- heartbeat {hb}, **{s.get('question_id')}**{waiting}: {s.get('unknown')} - "
+                f'"{one_line(s.get("quote", ""), 200)}" (*{s.get("source")}*)'
+            )
     doubted = [(e.heartbeat, bid) for e in episodes for bid in e.doubted_belief_ids if bid in state.beliefs]
     if doubted:
         lines += ["", "## Beliefs it came to doubt", ""]
@@ -364,6 +399,21 @@ def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episod
 
 
 _STANCE_WORD = {"defend": "defended", "revise": "revised", "concede": "conceded"}
+
+
+def _records_lines(meta: dict[str, Any], m: dict[str, Any]) -> list[str]:
+    """What happened to its curiosities, in the records architecture."""
+    if meta.get("architecture") != "records":
+        return []
+    return [
+        f"- **Curiosities:** {m.get('records_made', 0)} questions made precise (what exactly is unknown, what would answer it); "
+        f"{m.get('records_not_made', 0)} proposed questions were not born because it could not say what it did not know. "
+        f"{m.get('curiosities_satisfied', 0)} curiosities ended ({m.get('satisfied_while_waiting', 0)} while it was pursuing something "
+        f"else) after {m.get('looks_to_satisfaction', 0):g} looks on average; {m.get('satisfaction_refused', 0)} times it believed "
+        f"a passage answered one, but the quote or the judge did not bear that out. Not asked again because already answered: "
+        f"{m.get('already_satisfied_not_asked', 0)}. Deferred {m.get('questions_deferred', 0)}, faded {m.get('questions_faded', 0)}, "
+        f"let go {m.get('questions_dropped', 0)}."
+    ]
 
 
 def _brier_text(m: dict[str, Any]) -> str:

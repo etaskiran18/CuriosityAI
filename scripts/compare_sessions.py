@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 
 ROWS = [
+    ("architecture", "curiosity architecture"),
+    ("ablated", "parts switched off"),
     ("policy", "policy"),
     ("model", "model"),
     ("judge_model", "judge model"),
@@ -26,6 +28,16 @@ ROWS = [
     ("distinct_questions", "questions visited"),
     ("questions_born", "questions born"),
     ("questions_settled", "questions settled"),
+    ("records_made", "questions made precise (records)"),
+    ("records_not_made", "questions not born: unknown not named"),
+    ("curiosities_satisfied", "curiosities satisfied"),
+    ("satisfied_while_waiting", "satisfied while pursuing something else"),
+    ("satisfaction_refused", "satisfactions the quote or judge refused"),
+    ("looks_to_satisfaction", "looks to satisfaction"),
+    ("already_satisfied_not_asked", "answered curiosities not asked again"),
+    ("questions_deferred", "curiosities deferred"),
+    ("questions_faded", "curiosities faded"),
+    ("questions_dropped", "curiosities let go"),
     ("beliefs_new", "new beliefs"),
     ("beliefs_grounded", "grounded beliefs"),
     ("beliefs_doubted", "beliefs doubted"),
@@ -98,6 +110,8 @@ def main() -> None:
     def cell(value) -> str:
         if value is None:
             return ""
+        if isinstance(value, list):
+            return ", ".join(map(str, value)) or "-"
         return f"{value:.3g}" if isinstance(value, float) else str(value)
 
     print("| metric | " + " | ".join(names) + " |")

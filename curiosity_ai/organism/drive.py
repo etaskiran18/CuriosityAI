@@ -261,7 +261,8 @@ def compute_vitals(episodes: list[Episode]) -> Vitals:
         mean_informativeness=_mean(e.informativeness for e in episodes),
         diversity=len({e.question_id for e in episodes}) / n,
         births_per_episode=sum(len(e.new_question_ids) for e in episodes) / n,
-        settled_per_episode=sum(1 for e in episodes if e.status_after == "settled") / n,
+        # a curiosity a quote answered (records architecture) is settled too, even one it was not pursuing
+        settled_per_episode=sum(1 for e in episodes if e.status_after in ("settled", "satisfied") or e.satisfied) / n,
         on_topic=_mean(e.relevance for e in episodes),
         evidence_rate=sum(1 for e in episodes if e.support + e.contradicted > 0) / n,
     )

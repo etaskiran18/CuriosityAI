@@ -128,6 +128,34 @@ class Judge:
         return None
 
 
+    def satisfies(
+        self, unknown: str, answer_form: str, quote: str, source: str = "", *, errors: list[str] | None = None
+    ) -> Verdict:
+        """Does the quote end a curiosity: could a reader now say what the unknown is? "supports" if it does,
+        "neither" if not, "unjudged" if the judge could not say (then the curiosity stays open)."""
+        user = (
+            f"THE UNKNOWN: {one_line(unknown, 300)}\nWHAT WOULD ANSWER IT: {one_line(answer_form, 300)}\nQUOTE"
+            + (f" (from {one_line(source, 120)})" if source else "")
+            + f': "{one_line(quote, 500)}"\n\nDoes the quote answer it?'
+        )
+        self.before_thinking()
+        try:
+            data = self.llm.json_chat(P.JUDGE_SATISFACTION, user, P.SATISFACTION_SCHEMA, temperature=self.temperature, max_tokens=120)
+        except Exception as exc:
+            if errors is not None:
+                errors.append(f"judge: {type(exc).__name__}: {one_line(str(exc), 160)}")
+            self.trace("judge-satisfaction", user, f"ERROR {exc}")
+            return Verdict("unjudged")
+        self.trace("judge-satisfaction", user, data)
+        data = data if isinstance(data, dict) else {}
+        answer = yes_no(data.get("answers", data.get("answer")))
+        reason = one_line(_as_str(data.get("reason")), 200)
+        if answer is True:
+            return Verdict("supports", reason)
+        if answer is False:
+            return Verdict("neither", reason)
+        return Verdict("unjudged", reason)
+
     def text_relevance(self, title: str, excerpt: str, *, question: str, topic: str, errors: list[str] | None = None) -> float | None:
         """How useful a text found by a search is for the question (0..1), or None if the judge could not say."""
         user = (
@@ -145,6 +173,21 @@ class Judge:
             return None
         self.trace("judge-text", user, data)
         return rating_of((data or {}).get("rating")) if isinstance(data, dict) else None
+
+
+def yes_no(value: Any) -> bool | None:
+    """'yes' -> True, 'No, it does not' -> False; None for anything else, such as the schema hint "yes or no: ..."
+    copied back, which starts with "yes" but says nothing."""
+    if isinstance(value, bool):
+        return value
+    s = _as_str(value).strip().lower().strip("\"'*. ")
+    if not s or "|" in s or re.match(r"(yes|no)\s*(/|or)\s*(yes|no)\b", s):
+        return None
+    if re.match(r"(yes|true|it does|they do)\b", s):
+        return True
+    if re.match(r"(no|false|not|it does not|they do not)\b", s):
+        return False
+    return None
 
 
 def _index(value: Any, default: int) -> int:

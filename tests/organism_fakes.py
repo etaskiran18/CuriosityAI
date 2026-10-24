@@ -12,7 +12,21 @@ from typing import Any, Callable
 
 _PASSAGE_RE = re.compile(r"\[(S\d+)\] [^\n]*\n(.*?)(?=\n\n\[S\d+\] |\n\n(?:For each expectation|List at most)|\Z)", re.DOTALL)
 _PAIR_RE = re.compile(r"^(\d+)\. CLAIM: (.*)\n\s+QUOTE[^:]*: \"(.*)\"$", re.MULTILINE)
-_STEPS = ("ANTICIPATE", "COMPARE", "WONDER", "SKEPTIC", "SETTLE", "NOTICE", "REFLECT", "LIBRARIAN", "JUDGE", "GRADE", "EXAM", "TOPIC")
+_STEPS = (
+    "ANTICIPATE", "COMPARE", "WONDER", "SKEPTIC", "SETTLE", "NOTICE", "REFLECT", "LIBRARIAN", "JUDGE", "GRADE", "EXAM", "TOPIC",
+    "CONCEIVE", "SATISFY",
+)
+
+# A curiosity record as a careful model writes one for the seed question about wonder.
+RECORD = {
+    "unknown": "the feeling that marks a philosopher and starts philosophical inquiry",
+    "known": ["Plato links wonder to the beginning of philosophy"],
+    "answer_form": "a text naming the feeling with which philosophy begins",
+    "interest": "It decides whether wonder and curiosity are one thing.",
+    "reachable": "yes",
+    "pursue_now": "yes",
+    "why": "It is the question I began with.",
+}
 
 
 def step_of(system: str) -> str:
@@ -90,7 +104,13 @@ class ScriptedLLM:
         grade: str = "correct",
         stance: str = "REVISE",
         text_rating: Any = 3,
+        conceive: Callable[[str], dict[str, Any]] | dict[str, Any] | None = None,
+        recognize: str = "yes",  # SATISFY: "yes" (quotes the passage), "no", or "invented" (a quote that is in no passage)
+        satisfies: str = "yes",  # the judge's answer to "Does the quote answer it?"
     ):
+        self.conceive = conceive
+        self.recognize = recognize
+        self.satisfies = satisfies
         self.fail_steps = set(fail_steps)
         self.settle_override = settle
         self.contradict_for_real = contradict_for_real
@@ -173,6 +193,23 @@ class ScriptedLLM:
                     {"finding": "made up", "source": first, "quote": "This sentence does not appear anywhere in the sources at all"},
                 ],
             }
+        if step == "CONCEIVE":
+            question = re.search(r"^Your question: (.*)$", user, re.MULTILINE)
+            text = question.group(1) if question else ""
+            if callable(self.conceive):
+                return self.conceive(text)
+            return dict(self.conceive) if self.conceive is not None else dict(RECORD)
+        if step == "SATISFY":
+            if self.recognize == "no":
+                return {"recognized": "no", "source": "", "quote": "", "answer": ""}
+            unknown = re.search(r"^What you do not know: (.*)$", user, re.MULTILINE)
+            passages = passages_in(user.split("Passages you have just read:", 1)[-1].split("\n\nDo these passages", 1)[0])
+            label, quote = best_quote(passages, unknown.group(1) if unknown else "", n=12) if passages else ("S1", "")
+            if self.recognize == "invented":
+                quote = "Philosophy begins in a feeling that nobody has ever named before today"
+            return {"recognized": "yes", "source": label, "quote": quote, "answer": "Philosophy begins in wonder, the feeling of a philosopher."}
+        if step == "JUDGE" and "Does the quote answer it?" in user:
+            return {"answers": self.satisfies, "reason": "scripted"}
         if step == "JUDGE" and "A text found in a search" in user:
             return {"rating": self.text_rating, "reason": "scripted"}
         if step == "JUDGE" and "Can the claim and the quote both be true?" in user:
