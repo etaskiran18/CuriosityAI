@@ -64,6 +64,24 @@ Add `--judge-model qwen2.5:14b` here too if you downloaded it. This life lives i
 (`--new-life` moves the old one to an archive folder). Send back from `memory/organism/`:
 `research_map.md`, `diary.md` and `sessions/<newest>/report.md`.
 
+## 4c. Curiosity records (v10), after İnan and Ady
+
+The new architecture ([CURIOSITY_RECORDS.md](CURIOSITY_RECORDS.md)) in a life of its own, so your other lives
+stay as they are. Two runs of an hour each, one after the other:
+
+```bash
+python live.py --home memory/records --architecture records --minutes 60
+python scripts/trap_tests.py --home runs/traps --model mistral:7b-instruct --heartbeats 8
+```
+
+The first is the curiosity life with curiosity records (add `--web` and `--judge-model qwen2.5:14b` as
+above if you like). The second sets four traps, each in a life of its own, and writes `runs/traps/trap_results.md`.
+Send back from `memory/records/`: `diary.md`, `research_map.md`, `sessions/<newest>/report.md` and
+`sessions/<newest>/curiosity_records.jsonl`, and `runs/traps/trap_results.md`.
+
+In the diary, look for "What I want to know", "Curiosity satisfied", "I am curious about ..., but I do not
+pursue it now, because ...", "faded", and "Spare time: I went back to ...".
+
 ## 5. What to look at yourself
 
 1. **"Your draft's claims it met, and what the other texts say"** in the research map: does what it
