@@ -9,3 +9,7 @@ memory/**/library/.cache/
 # Researcher mode: your papers (converted to text) and research lives stay private
 memory/research/
 memory/**/papers/
+
+# Cluster runs (hpc/valar): results and your own site settings
+runs/
+hpc/valar/my_settings.sh

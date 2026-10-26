@@ -118,6 +118,15 @@ def test_it_does_not_start_a_heartbeat_it_cannot_finish(config):
     assert t.now <= 195
 
 
+def test_with_heartbeats_and_minutes_it_stops_at_whichever_comes_first(config):
+    org, t = timed_organism(config, ScriptedLLM(), seconds_per_thought=10)  # about 90 s per heartbeat
+    assert org.run_session(2, minutes=60).metrics["heartbeats"] == 2  # the heartbeats come first
+    assert t.now < 60 * 60
+    config.organism.home = config.organism.home + "-short"
+    org, t = timed_organism(config, ScriptedLLM(), seconds_per_thought=10)
+    assert org.run_session(10, minutes=3.25).metrics["heartbeats"] == 2  # the time limit comes first
+    assert t.now <= 195
+
 def test_no_brier_score_without_an_addressed_prediction(config):
     org = CuriosityOrganism(config, llm=ScriptedLLM(judge="neither"))
     report = org.run_session(1)

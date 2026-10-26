@@ -510,11 +510,13 @@ class CuriosityOrganism:
         """Live several heartbeats, resting between them to protect the computer.
 
         With ``minutes`` it lives until that much time has passed (rests
-        included) and then stops after the current heartbeat.
+        included) and then stops after the current heartbeat. With both
+        ``heartbeats`` and ``minutes`` it stops at whichever comes first.
         """
         total = self.oc.heartbeats_per_run if heartbeats is None else heartbeats
         deadline = self.body.now() + minutes * 60 if minutes else None
-        endless = forever or deadline is not None
+        endless = forever or (deadline is not None and heartbeats is None)
+        patient = forever or deadline is not None  # a long life waits for a model that is away for a while
         episodes: list[Episode] = []
         durations: list[float] = []
         failures = 0
@@ -537,7 +539,7 @@ class CuriosityOrganism:
             if episode is not None and episode.status_after == "no-thought":
                 self.no_thought += 1
                 failures += 1
-                if failures >= 2 and not endless:
+                if failures >= 2 and not patient:
                     raise OrganismError(
                         "The language model did not answer in two heartbeats in a row: " + "; ".join(episode.errors)
                     )
@@ -632,7 +634,8 @@ class CuriosityOrganism:
             key=lambda item: -item[1],
         )
         # A question it started with, was asked, or chose in a reflection has no record yet: it is made precise now.
-        conceived = self.cc.records and not q.has_record and self._conceive_question(q, errors)
+        tried = self.cc.records and not q.has_record
+        conceived = tried and self._conceive_question(q, errors)
 
         related = self._related_beliefs(f"{q.text} {q.answer}", limit=5, include=q.related_beliefs)
         anticipation = self._anticipate(q, related, errors)
@@ -670,6 +673,7 @@ class CuriosityOrganism:
             attention=attention,
         )
         episode.conceived = conceived
+        episode.conceive_failed = bool(tried and not conceived)
         if self.cc.records:
             self._after_reading(q, episode, observations, errors)
         self._maybe_visit_library(q, episode, errors)

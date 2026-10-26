@@ -113,6 +113,9 @@ class Diary:
         if q is not None and q.has_record:
             made = " *(I made it precise just now.)*" if ep.conceived else ""
             lines.append(f"*What I want to know:* {q.unknown}. *It would be answered by:* {q.answer_form}{made}")
+        elif ep.conceive_failed:
+            lines.append("*What I want to know:* I could not yet say what exactly I do not know here, so nothing can satisfy "
+                         "this question yet.")
         lines += ["", f"**Before looking** (confidence {ep.prior_confidence:.2f}): {ep.prior_answer or 'I had no answer yet.'}"]
         if ep.predictions:
             lines.append("")

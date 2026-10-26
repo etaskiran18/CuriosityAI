@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import sys
 import time
 from pathlib import Path
@@ -450,6 +451,17 @@ def read_shared_file(path: Path) -> tuple[str, str]:
     return path.stem, path.read_text(encoding="utf-8", errors="ignore")
 
 
+def stop_gently_on_sigterm() -> None:
+    """A computing cluster ends a job with SIGTERM: treat it like Ctrl+C, so the mind is saved and the report written."""
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+
+    try:
+        signal.signal(signal.SIGTERM, interrupt)
+    except (AttributeError, ValueError, OSError):  # no SIGTERM here, or not the main thread
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Live, talk to, and observe the curiosity organism.")
     parser.add_argument("--config", default="config.yaml")
@@ -471,6 +483,8 @@ def main() -> int:
     parser.add_argument("--reflect", action="store_true", help="Reflect now")
     parser.add_argument("--new-life", action="store_true", help="Archive the current life and start a new one")
     parser.add_argument("--model", default=None, help="Override llm.model (e.g. mistral:7b-instruct, qwen2.5:3b)")
+    parser.add_argument("--ollama-url", default=None, metavar="URL",
+                        help="Where Ollama listens, e.g. http://127.0.0.1:11500 (default: llm.base_url in the config); the judge uses it too")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible choices")
     parser.add_argument("--check", action="store_true", help="Check this computer's setup (with --web, also the online sources) and exit")
     parser.add_argument("--exam", nargs="?", const="default", default=None, metavar="FILE",
@@ -489,10 +503,13 @@ def main() -> int:
                              + ", ".join(CURIOSITY_PARTS))
     args = parser.parse_args()
 
+    stop_gently_on_sigterm()
     load_dotenv()
     config = load_config(args.config)
     if args.model:
         config.llm.model = args.model
+    if args.ollama_url:
+        config.llm.base_url = args.ollama_url
     if args.seed is not None:
         config.organism.random_seed = args.seed
     if args.pause is not None:
@@ -627,7 +644,10 @@ def main() -> int:
     console.print(f"[dim]Judge: {'off (self-graded)' if organism.judge is None else (config.organism.judge.model or config.llm.model)}[/dim]")
     if exam_path:
         console.print(f"[dim]Exam before and after: {escape(str(exam_path))} (exam time does not count toward the session).[/dim]")
-    if args.minutes:
+    if args.minutes and args.heartbeats is not None and not args.forever:
+        console.print(f"[dim]Living for {args.heartbeats} heartbeats or {args.minutes:g} minutes, whichever comes first, "
+                      "then it stops and writes a report. Ctrl+C stops earlier.[/dim]")
+    elif args.minutes:
         console.print(f"[dim]Living for {args.minutes:g} minutes, then it stops and writes a report. Ctrl+C stops earlier.[/dim]")
 
     code = 0

@@ -124,6 +124,17 @@ def test_a_question_is_born_only_when_its_unknown_can_be_named(records):
     assert "could not say what exactly I do not know" in (org.home / "diary.md").read_text(encoding="utf-8")
 
 
+def test_a_chosen_question_it_cannot_make_precise_is_said_so_and_counted(records):
+    """A small model may only echo the hint back (qwen2.5:1.5b did): the diary says so and the report counts it."""
+    echo = {"unknown": "the one thing you cannot yet identify, written as: the ... that ...",
+            "answer_form": "a text or an observation saying ..."}
+    org = CuriosityOrganism(records, llm=ScriptedLLM(conceive=lambda text: dict(echo), recognize="no"))
+    report = org.run_session(1)
+    assert not org.state.questions["Q1"].has_record
+    assert report.metrics["records_failed"] == 1 and report.metrics["records_made"] == 0
+    assert "I could not yet say what exactly I do not know here" in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert "1 times it could not say it for the question it chose" in report.markdown
+
 def test_a_new_question_is_born_with_its_record(records):
     llm = ScriptedLLM(recognize="no")
     org = CuriosityOrganism(records, llm=llm)

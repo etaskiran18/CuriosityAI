@@ -140,20 +140,23 @@ per hour and questions born per hour.
 
 ## Running it on a computing cluster (for example VALAR)
 
-A cluster is worth it for what a laptop cannot do: larger models (32B-70B), a larger judge model, and
-many seeds and conditions in parallel. Three practical points:
+A cluster is worth it for what a laptop cannot do: larger models (32B-72B), a larger judge model, and
+many seeds and conditions in parallel. **[hpc/valar/README.md](../hpc/valar/README.md)** has the scripts
+for VALAR: a one-time setup, one job per model (each with its own Ollama server, `live.py --ollama-url`),
+and a step that gathers the diaries, reports and a comparison table. The principles:
 
 * **Freeze the library.** Compute nodes often have no internet. Run without `--web`, so every condition
   reads exactly the same books; that is also better science. Researcher mode can use a fixed `--papers`
   folder.
-* **Compare by heartbeats, not minutes.** Models of different sizes think at different speeds:
-  `--heartbeats 100` gives every condition the same amount of inquiry.
-* **One life per folder.** Use `--home` per condition and seed, for example
-  `--home runs/qwen32b-curiosity-seed3`, and collect all `sessions/*/metrics.json` with
-  `compare_sessions.py --csv`.
+* **Keep the judge fixed.** The judge decides what counts as evidence and as a satisfied curiosity; when
+  the organism's model changes, the judge must not.
+* **Compare by heartbeats, not only minutes.** Models of different sizes think at different speeds:
+  `--heartbeats 30 --minutes 240` gives every condition the same amount of inquiry, with a time limit
+  (it stops at whichever comes first).
+* **One life per folder.** Use `--home` per condition and seed, and collect all `sessions/*/metrics.json`
+  with `compare_sessions.py --csv` (the VALAR scripts do both).
 
-Ollama runs on a cluster too (a single program; point `OLLAMA_MODELS` to your project storage). A
-server that runs many lives on one GPU at once (such as vLLM) would be faster; it is not built in yet.
+A server that runs many lives on one GPU at once (such as vLLM) would be faster; it is not built in yet.
 
 ## Ideas for extending the research
 

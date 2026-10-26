@@ -30,6 +30,7 @@ ROWS = [
     ("questions_settled", "questions settled"),
     ("records_made", "questions made precise (records)"),
     ("records_not_made", "questions not born: unknown not named"),
+    ("records_failed", "chosen questions it could not make precise"),
     ("curiosities_satisfied", "curiosities satisfied"),
     ("satisfied_while_waiting", "satisfied while pursuing something else"),
     ("satisfaction_refused", "satisfactions the quote or judge refused"),

@@ -27,6 +27,7 @@ def main() -> int:
     parser.add_argument("--n", type=int, default=20)
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--model", default=None)
+    parser.add_argument("--ollama-url", default=None, metavar="URL", help="where Ollama listens (default: llm.base_url in the config)")
     parser.add_argument("--seed", type=int, default=1)
     args = parser.parse_args()
 
@@ -36,6 +37,8 @@ def main() -> int:
     config = load_config(args.config)
     if args.model:
         config.llm.model = args.model
+    if args.ollama_url:
+        config.llm.base_url = args.ollama_url
     config.organism.home = args.home
     config.organism.body.enabled = False
     config.organism.curiosity.architecture = "records"

@@ -12,6 +12,9 @@ organism **returns** to texts that made it curious. Each part can be switched of
 forking, blind rating sheets and a no-loop baseline help evaluate it. See
 **[docs/CURIOSITY_RECORDS.md](docs/CURIOSITY_RECORDS.md)** and [CHANGELOG_v10.md](CHANGELOG_v10.md).
 
+On a computing cluster (Koç University's VALAR), one life per model size, with the same judge and books for
+all: **[hpc/valar/README.md](hpc/valar/README.md)**.
+
 ## v9: the Curiosity Organism, now measured honestly, and a researcher mode
 
 v1 to v7 ask a language model to write about curiosity and then grade the writing. v8 added an

@@ -201,6 +201,7 @@ def compute_metrics(
         "records_made": sum(1 for e in episodes if e.conceived)
         + sum(1 for qid in born if qid in state.questions and state.questions[qid].has_record),
         "records_not_made": sum(len(e.not_conceived) for e in episodes),
+        "records_failed": sum(1 for e in episodes if e.conceive_failed),
         "curiosities_satisfied": len(satisfied),
         "satisfied_while_waiting": sum(1 for s in satisfied if s.get("incidental")),
         "satisfaction_refused": sum(len(e.satisfaction_refused) for e in episodes),
@@ -473,7 +474,8 @@ def _records_lines(meta: dict[str, Any], m: dict[str, Any]) -> list[str]:
         return []
     return [
         f"- **Curiosities:** {m.get('records_made', 0)} questions made precise (what exactly is unknown, what would answer it); "
-        f"{m.get('records_not_made', 0)} proposed questions were not born because it could not say what it did not know. "
+        f"{m.get('records_not_made', 0)} proposed questions were not born because it could not say what it did not know; "
+        f"{m.get('records_failed', 0)} times it could not say it for the question it chose. "
         f"{m.get('curiosities_satisfied', 0)} curiosities ended ({m.get('satisfied_while_waiting', 0)} while it was pursuing something "
         f"else) after {m.get('looks_to_satisfaction', 0):g} looks on average; {m.get('satisfaction_refused', 0)} times it believed "
         f"a passage answered one, but the quote or the judge did not bear that out. Not asked again because already answered: "

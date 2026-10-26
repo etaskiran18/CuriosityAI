@@ -1,6 +1,17 @@
 from __future__ import annotations
 
+import os
+import signal
+import sys
+from pathlib import Path
+
+import pytest
+
 import live
+from curiosity_ai.config import AppConfig
+from curiosity_ai.organism.papers import ingest_papers
+
+from .test_organism_research import LINES, minimal_pdf
 
 
 class Reply:
@@ -32,16 +43,6 @@ def test_model_names_match_with_or_without_a_tag():
     assert live._is_model({"mistral:7b-instruct"}, "mistral:7b-instruct")
     assert not live._is_model({"qwen2.5:3b"}, "mistral:7b-instruct")
 
-
-import os
-from pathlib import Path
-
-import pytest
-
-from curiosity_ai.config import AppConfig
-from curiosity_ai.organism.papers import ingest_papers
-
-from .test_organism_research import LINES, minimal_pdf
 
 
 @pytest.mark.skipif(os.name == "nt", reason="WSL and Linux paths")
@@ -93,3 +94,37 @@ def test_a_judge_model_that_is_not_installed_stops_the_run_at_once(monkeypatch, 
     monkeypatch.setattr(live.requests, "get", lambda url, timeout=5: Tags({"models": [{"name": "mistral:7b-instruct"}, {"name": "qwen2.5:14b"}]}))
     assert live.check_ollama(config)
 
+
+def test_the_ollama_server_can_be_named_on_the_command_line(monkeypatch):
+    """On a computing cluster every job starts its own Ollama server on a free port."""
+    seen = {}
+
+    def checks(config, online=False):
+        seen["url"] = config.llm.base_url
+        return 0
+
+    monkeypatch.setattr(live, "run_checks", checks)
+    monkeypatch.setattr(live, "stop_gently_on_sigterm", lambda: None)  # leave the test runner's signals alone
+    monkeypatch.setattr(sys, "argv", ["live.py", "--ollama-url", "http://127.0.0.1:11500", "--check"])
+    assert live.main() == 0 and seen["url"] == "http://127.0.0.1:11500"
+
+
+def test_a_judge_model_asks_the_same_server_as_the_organism(config):
+    from curiosity_ai.organism import CuriosityOrganism
+
+    config.llm.base_url = "http://127.0.0.1:11500"
+    config.organism.judge.model = "qwen2.5:32b"
+    judge = CuriosityOrganism(config).judge
+    assert judge.llm.base_url == "http://127.0.0.1:11500" and judge.llm.config.model == "qwen2.5:32b"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGTERM ends a process at once on Windows")
+def test_a_cluster_ending_the_job_stops_it_like_ctrl_c():
+    """SLURM ends a job with SIGTERM; like Ctrl+C, it must leave time to save the mind and write the report."""
+    before = signal.getsignal(signal.SIGTERM)
+    try:
+        live.stop_gently_on_sigterm()
+        with pytest.raises(KeyboardInterrupt):
+            os.kill(os.getpid(), signal.SIGTERM)
+    finally:
+        signal.signal(signal.SIGTERM, before)

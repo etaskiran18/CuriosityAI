@@ -33,9 +33,26 @@ Each part can be switched off for experiments: `--ablate decision,satisfaction,a
 * Asked whether a text could ever answer a question, qwen2.5:3b said no to all four it was given; asked whether
   nobody could ever find it out, it said no to all four. Its doubt alone never lets a curiosity go.
 * An invented quote ("the tyranny, 332") offered as an answer was refused before the judge saw it.
+* qwen2.5:1.5b could not make a single question precise: it returned the instruction's hint ("the one thing you
+  cannot yet identify ..."). qwen2.5:3b did for some questions and left others unfinished ("the nature of wonder
+  that ..."). The diary now says when it cannot say what exactly it does not know about the question it chose,
+  and the report counts it (`records_failed`): one of the things that may change with the size of the model.
+
+## Running it on a computing cluster (VALAR)
+
+* `hpc/valar/`: a one-time setup on the login node (Python environment, Ollama, models), one SLURM job per
+  model, and a step that gathers the diaries, research maps, reports and a comparison table into one archive.
+  Every job starts its own Ollama server on a free port, loads the organism's and the judge's model before its
+  time starts, and stops at once if a model would run partly on the CPU. See `hpc/valar/README.md`.
+* `live.py --ollama-url URL` (also in `trap_tests.py`, `fork_life.py`, `plain_curiosity.py`): the server to
+  use; the judge uses it too.
+* `--heartbeats N --minutes M` stops at whichever comes first (before, the minutes alone counted): the same
+  amount of inquiry for models of every size, with a time limit for the slow ones.
+* The end of a cluster job (SIGTERM) is treated like Ctrl+C: the mind is saved and the report written.
 
 ## Also
 
 * Question statuses `deferred`, `satisfied`, `faded` and `dropped`; a curiosity's history of status changes.
 * Old minds load unchanged: every new field has a default.
-* Tests: 384 (from 311), with new files for records, decisions, transience, exposure, traps and evaluation.
+* Tests: 401 (from 311), with new files for records, decisions, transience, exposure, traps, evaluation and
+  the cluster scripts.

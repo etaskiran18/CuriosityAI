@@ -224,6 +224,7 @@ class Episode(BaseModel):
     unknowable_questions: list[str] = Field(default_factory=list)  # about things nobody has identified: no text can answer
     # The records architecture
     conceived: bool = False  # the heartbeat's question received its record now
+    conceive_failed: bool = False  # it tried to make the heartbeat's question precise and could not
     not_conceived: list[str] = Field(default_factory=list)  # proposed, but it could not say what exactly it does not know
     satisfied: list[dict[str, Any]] = Field(default_factory=list)  # curiosities a verified quote ended this heartbeat
     satisfaction_refused: list[dict[str, Any]] = Field(default_factory=list)  # it believed so; the judge did not

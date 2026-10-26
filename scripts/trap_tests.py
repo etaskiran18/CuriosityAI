@@ -31,6 +31,7 @@ def main() -> int:
     parser.add_argument("--home", required=True, help="folder for the trap lives and the results")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--model", default=None)
+    parser.add_argument("--ollama-url", default=None, metavar="URL", help="where Ollama listens (default: llm.base_url in the config)")
     parser.add_argument("--judge-model", default=None)
     parser.add_argument("--heartbeats", type=int, default=8)
     parser.add_argument("--trap", default=",".join(TRAPS), help=f"comma-separated: {', '.join(TRAPS)}")
@@ -53,6 +54,8 @@ def main() -> int:
     config = load_config(args.config)
     if args.model:
         config.llm.model = args.model
+    if args.ollama_url:
+        config.llm.base_url = args.ollama_url
     if args.judge_model:
         config.organism.judge.model = args.judge_model
     config.organism.random_seed = args.seed
