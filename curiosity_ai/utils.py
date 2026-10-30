@@ -61,7 +61,58 @@ def extract_json_object(text: str) -> dict[str, Any]:
             return json.loads(candidate)
         except json.JSONDecodeError:
             pass
+    repaired = close_truncated_json(text)
+    if repaired is not None:
+        return repaired
     raise ValueError(f"Could not extract JSON object from response: {text[:500]}")
+
+
+def close_truncated_json(text: str, max_attempts: int = 400) -> dict[str, Any] | None:
+    """Best effort for a reply cut off by the length limit: keep every value that was complete.
+
+    Walks the text once, remembering each point where a value had just ended
+    (a closed string, object or list, or the place before a comma), and which
+    brackets were open there. Then, from the last such point backwards, it cuts
+    the text there and closes the open brackets until the result parses.
+    """
+    start = text.find("{")
+    if start < 0:
+        return None
+    s = text[start:]
+    stack: list[str] = []
+    cuts: list[tuple[int, str]] = []
+    in_string = escaped = False
+    for i, ch in enumerate(s):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+                cuts.append((i + 1, "".join(reversed(stack))))
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            cuts.append((i + 1, "".join(reversed(stack))))
+            if not stack:
+                break
+        elif ch == ",":
+            cuts.append((i, "".join(reversed(stack))))
+    for end, closers in reversed(cuts[-max_attempts:]):
+        candidate = s[:end].rstrip().rstrip(",") + closers
+        try:
+            value = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def normalize_score(x: float) -> float:

@@ -1,0 +1,563 @@
+"""Sessions: a bounded stretch of the organism's life, with a report that can be compared.
+
+Every run of live.py that lets the organism think is a session. When the
+session ends (normally, at its time limit, or with Ctrl+C) the folder
+``<home>/sessions/<id>/`` receives:
+
+* ``report.md``       what happened, in words and tables;
+* ``metrics.json``    the numbers, for comparing experiments (scripts/compare_sessions.py);
+* ``config.json``     the exact settings it ran with (model, policy, seed, temperament, ...);
+* ``judge_check.csv`` up to 20 random claim/quote pairs the judge decided, with an
+  empty column for your own verdict (scripts/judge_agreement.py scores it).
+
+The life's ``research_map.md`` is rewritten too.
+"""
+from __future__ import annotations
+
+import csv
+import json
+import random
+import re
+import time
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from ..schema import utc_now_iso
+from ..utils import read_jsonl
+from .drive import DIAGNOSES
+from .state import Episode, MindState
+from .textutil import one_line
+
+if TYPE_CHECKING:
+    from .body import Rest
+    from .organism import CuriosityOrganism
+
+
+@dataclass
+class SessionReport:
+    session_id: str
+    directory: Path
+    metrics: dict[str, Any]
+    markdown: str
+
+
+def snapshot(state: MindState) -> dict[str, Any]:
+    return {
+        "heartbeat": state.heartbeat,
+        "questions": dict(Counter(q.status for q in state.questions.values())),
+        "beliefs": dict(Counter(b.status for b in state.beliefs.values())),
+        "temperament": state.temperament.model_dump(),
+        "understanding": (
+            state.self_model.understanding_of_topic if state.topic.mode == "research" else state.self_model.understanding_of_curiosity
+        ),
+    }
+
+
+class Session:
+    def __init__(self, organism: "CuriosityOrganism", *, label: str | None = None, minutes: float | None = None):
+        self.organism = organism
+        self.minutes = minutes
+        self.started_at = utc_now_iso()
+        self._t0 = time.monotonic()
+        slug = re.sub(r"[^a-z0-9]+", "-", (label or "").lower()).strip("-")[:30]
+        self.session_id = time.strftime("%Y%m%d-%H%M%S") + (f"-{slug}" if slug else "")
+        self.start_heartbeat = organism.state.heartbeat
+        self.before = snapshot(organism.state)
+        self._rests_before = len(organism.rest_log)
+        self._no_thought_before = organism.no_thought
+        self.exam_before: Any = None  # ExamResult, when an exam was taken before living
+        self.exam_after: Any = None
+        self._t1: float | None = None
+        self._rests_end: int | None = None
+
+    def stop_clock(self) -> None:
+        """Living is over; what follows (an exam, writing the report) is not part of the session."""
+        self._t1 = time.monotonic()
+        self._rests_end = len(self.organism.rest_log)
+
+    def finish(self) -> SessionReport:
+        org = self.organism
+        episodes = [
+            Episode.model_validate(row)
+            for row in read_jsonl(org.episodes_path)
+            if int(row.get("heartbeat", 0)) > self.start_heartbeat
+        ]
+        after = snapshot(org.state)
+        vitals = [v for v in org.state.vitals_history if int(v.get("heartbeat", 0)) > self.start_heartbeat]
+        meta = {
+            "session_id": self.session_id,
+            "started_at": self.started_at,
+            "ended_at": utc_now_iso(),
+            "model": org.config.llm.model,
+            "policy": org.oc.policy,
+            "architecture": org.oc.curiosity.architecture,
+            "ablated": org.oc.curiosity.ablated(),
+            "random_seed": org.oc.random_seed,
+            "web": bool(org.librarian),
+            "judge_model": (org.oc.judge.model or org.config.llm.model) if org.judge is not None else None,
+            "mode": org.state.topic.mode,
+            "topic": org.state.topic.title,
+            "time_limit_minutes": self.minutes,
+            "home": str(org.home),
+        }
+        metrics = compute_metrics(
+            episodes,
+            org.state,
+            seconds=(self._t1 or time.monotonic()) - self._t0,
+            rests=org.rest_log[self._rests_before:self._rests_end],
+            no_thought=org.no_thought - self._no_thought_before,
+            before=self.before,
+            after=after,
+            vitals=vitals,
+        )
+        metrics.update(exam_metrics(self.exam_before, self.exam_after))
+        markdown = render_report(meta, metrics, episodes, org.state, self.before, after)
+        directory = org.home / "sessions" / self.session_id
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "report.md").write_text(markdown, encoding="utf-8")
+        write_judge_check(directory / "judge_check.csv", episodes, seed=self.session_id)
+        if org.oc.curiosity.records:
+            write_records(directory / "curiosity_records.jsonl", org.state)
+        try:
+            from .research_map import write_research_map
+
+            write_research_map(org)
+        except Exception as exc:  # the map is a convenience; the session report must still be written
+            (directory / "research_map_error.txt").write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
+        (directory / "metrics.json").write_text(json.dumps({**meta, **metrics}, indent=2, ensure_ascii=False), encoding="utf-8")
+        (directory / "config.json").write_text(json.dumps(org.config.model_dump(mode="json"), indent=2, ensure_ascii=False), encoding="utf-8")
+        return SessionReport(self.session_id, directory, {**meta, **metrics}, markdown)
+
+
+def compute_metrics(
+    episodes: list[Episode],
+    state: MindState,
+    *,
+    seconds: float,
+    rests: list["Rest"],
+    no_thought: int,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    vitals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    n = len(episodes)
+    verified = sum(sum(1 for c in e.checks if c.get("status") in ("confirmed", "contradicted")) + len(e.unexpected) for e in episodes)
+    rejected = sum(e.rejected_quotes for e in episodes)
+    surprise = [e.prediction_error for e in episodes]
+    half = n // 2
+    born = [qid for e in episodes for qid in e.new_question_ids]
+    by_question: dict[str, list[Episode]] = {}
+    for e in episodes:
+        by_question.setdefault(e.question_id, []).append(e)
+    revisits = [eps for eps in by_question.values() if len(eps) >= 2]
+    acquired = [label for e in episodes for label in e.acquisitions]
+    rest_seconds = sum(r.seconds for r in rests)
+    predictions = [pr for e in episodes for pr in e.predictions]
+    hedged = sum(1 for pr in predictions if pr.get("hedged"))
+    statuses = Counter(c.get("status") for e in episodes for c in e.checks)
+    briers = [e.brier for e in episodes if e.brier is not None]
+    judgments = [j for e in episodes for j in e.judgments]
+    stances = Counter(e.stance for e in episodes if e.stance)
+    debates = [e for e in episodes if any(t.get("voice") == "Skeptic" for t in e.dialogue)]
+
+    def status_delta(kind: str, status: str) -> int:
+        return after[kind].get(status, 0) - before[kind].get(status, 0)
+
+    satisfied = [s for e in episodes for s in e.satisfied]
+    decisions = [d for e in episodes for d in e.decisions]
+    noticed = [e for e in episodes if e.attention]
+    returns = [r for r in state.returns if int(r.get("heartbeat", 0)) > int(before.get("heartbeat", 0))]
+    new_records = sorted(
+        (q for q in state.questions.values() if q.has_record and q.born_at > int(before.get("heartbeat", 0)) and q.trigger not in ("seed", "human")),
+        key=lambda q: q.born_at,
+    )
+    fits = [q.interest_fit for q in new_records]
+    looks = []
+    for s in satisfied:
+        q = state.questions.get(s.get("question_id", ""))
+        if q is not None and q.satisfied_at is not None:
+            looks.append(sum(1 for v in q.visits if v.heartbeat <= q.satisfied_at))
+
+    return {
+        "minutes": round(seconds / 60, 1),
+        "heartbeats": n,
+        "heartbeats_per_hour": round(n / (seconds / 3600), 1) if seconds > 0 else 0.0,
+        "failed_heartbeats": no_thought,
+        "rest_minutes": round(rest_seconds / 60, 1),
+        "cooling_rests": sum(1 for r in rests if r.reason == "cooling"),
+        "distinct_questions": len(by_question),
+        "questions_born": len(born),
+        "questions_born_by_trigger": dict(Counter(state.questions[q].trigger for q in born if q in state.questions)),
+        "questions_settled": max(0, status_delta("questions", "settled")),
+        "questions_dormant": max(0, status_delta("questions", "dormant")),
+        "questions_unanswerable": max(0, status_delta("questions", "unanswerable")),
+        # the records architecture (zero under the drive)
+        "questions_deferred": max(0, status_delta("questions", "deferred")),
+        "questions_satisfied": max(0, status_delta("questions", "satisfied")),
+        "questions_faded": max(0, status_delta("questions", "faded")),
+        "questions_dropped": max(0, status_delta("questions", "dropped")),
+        "records_made": sum(1 for e in episodes if e.conceived)
+        + sum(1 for qid in born if qid in state.questions and state.questions[qid].has_record),
+        "records_not_made": sum(len(e.not_conceived) for e in episodes),
+        "records_failed": sum(1 for e in episodes if e.conceive_failed),
+        "curiosities_satisfied": len(satisfied),
+        "satisfied_while_waiting": sum(1 for s in satisfied if s.get("incidental")),
+        "satisfaction_refused": sum(len(e.satisfaction_refused) for e in episodes),
+        "already_satisfied_not_asked": sum(len(e.already_satisfied) for e in episodes),
+        "looks_to_satisfaction": _mean(looks),
+        "pursued_at_birth": sum(1 for d in decisions if d.get("when") == "birth" and d.get("decision") == "pursue"),
+        "deferred_at_birth": sum(1 for d in decisions if d.get("when") == "birth" and d.get("decision") == "defer"),
+        "deferral_reasons": dict(Counter(d.get("kind", "") for d in decisions if d.get("decision") == "defer")),
+        "pursued_after_waiting": sum(1 for d in decisions if d.get("when") == "touch" and d.get("decision") == "pursue"),
+        "attention_events": dict(Counter(a.get("kind", "") for e in episodes for a in e.attention)),
+        "attention_heartbeats": len(noticed),
+        "attention_to_curiosity": round(
+            sum(1 for e in noticed if any(state.questions[q].has_record for q in e.new_question_ids if q in state.questions)) / len(noticed), 3
+        ) if noticed else 0.0,
+        "deferred_fates": deferred_fates(state),  # over the whole life, not only this session
+        "returns_to_texts": len(returns),
+        "born_on_return": sum(len(r.get("questions", [])) for r in returns),
+        "read_from_curious_texts": _share(episodes, "passages_from_curious", "passages_read"),
+        "read_from_curious_first_half": _share(episodes[:half], "passages_from_curious", "passages_read"),
+        "read_from_curious_second_half": _share(episodes[half:], "passages_from_curious", "passages_read"),
+        "interest_fit_of_new": _mean(fits),
+        "interest_fit_second_half": _mean(fits[len(fits) // 2:]),
+        "let_go_unreachable": sum(1 for d in decisions if d.get("kind") == "unreachable"),
+        "deferred_after_looking": sum(
+            1 for e in episodes if e.status_after == "deferred" and e.question_id in state.questions
+            and any(h.startswith(f"hb {e.heartbeat}: deferred (I have looked") for h in state.questions[e.question_id].history)
+        ),
+        "beliefs_new": sum(len(e.new_belief_ids) for e in episodes),
+        "beliefs_grounded": sum(e.grounded_new_beliefs for e in episodes),
+        "beliefs_interpretive": sum(len(e.new_belief_ids) - e.grounded_new_beliefs for e in episodes),
+        "beliefs_doubted": sum(len(e.doubted_belief_ids) for e in episodes),
+        "paper_doubts": sum(len(e.paper_doubt_ids) + len(e.agreed_doubt_ids) for e in episodes),
+        "own_claims_met": sum(1 for e in episodes for c in e.checks if c.get("status") == "own"),
+        "beliefs_reinforced": sum(len(e.reinforced_belief_ids) for e in episodes),
+        "quotes_verified": verified,
+        "quotes_rejected": rejected,
+        "fabrication_rate": round(rejected / (verified + rejected), 3) if verified + rejected else 0.0,
+        "mean_surprise": _mean(surprise),
+        "surprise_first_half": _mean(surprise[:half]),
+        "surprise_second_half": _mean(surprise[half:]),
+        "mean_informativeness": _mean([e.informativeness for e in episodes]),
+        "mean_confidence_change": _mean([abs(e.confidence - e.prior_confidence) for e in episodes]),
+        "revisited_questions": len(revisits),
+        "surprise_change_on_revisits": _mean([eps[-1].prediction_error - eps[0].prediction_error for eps in revisits]),
+        "predictions": len(predictions),
+        "predictions_hedged": hedged,
+        "predictions_weak": sum(1 for pr in predictions if pr.get("weak")),
+        "hedged_rate": round(hedged / len(predictions), 3) if predictions else 0.0,
+        "predictions_confirmed": statuses.get("confirmed", 0),
+        "predictions_contradicted": statuses.get("contradicted", 0),
+        # None when no prediction was addressed: 0.0 would read as perfect predictions.
+        "mean_brier": _mean(briers) if briers else None,
+        "brier_first_half": _mean(briers[: len(briers) // 2]) if len(briers) >= 2 else None,
+        "brier_second_half": _mean(briers[len(briers) // 2:]) if len(briers) >= 2 else None,
+        "judge_pairs": len(judgments),
+        "judge_agreement": round(sum(1 for j in judgments if agrees(j)) / len(judgments), 3) if judgments else None,
+        "judge_rejected": sum(1 for j in judgments if j.get("judge") == "neither"),
+        "stances": dict(stances),
+        "concession_rate": round(stances.get("concede", 0) / sum(stances.values()), 3) if stances else 0.0,
+        "skeptic_quoted_rate": round(
+            sum(1 for e in debates if any(t.get("evidence") == "quote" for t in e.dialogue)) / len(debates), 3
+        ) if debates else 0.0,
+        "vague_answers": sum(1 for e in episodes if e.vague),
+        "hedged_answers": sum(1 for e in episodes if e.hedged_answer),
+        "strawman_falsifiers": sum(1 for e in episodes if e.strawman_falsifier),
+        "mean_on_topic": _mean([e.relevance for e in episodes]),
+        "questions_set_aside": sum(len(e.set_aside_questions) for e in episodes),
+        "questions_held_back": sum(len(e.held_back_questions) for e in episodes),
+        "questions_unknowable": sum(len(e.unknowable_questions) for e in episodes),
+        "dialogue_unverified_citations": sum(1 for e in episodes for t in e.dialogue if t.get("citations") == "unverified"),
+        "dialogue_invented_quotes": sum(1 for e in episodes for t in e.dialogue if t.get("quotes") == "invented"),
+        "library_visits": sum(1 for e in episodes if e.acquisitions or e.library_misses or e.library_owned or e.library_busy or e.library_rejected),
+        "acquisitions": len(acquired),
+        "acquisitions_by_kind": dict(Counter(label.split(":")[0] for label in acquired)),
+        "library_busy": sum(len(e.library_busy) for e in episodes),
+        "library_busy_why": _busy_reasons(episodes),
+        "library_rejected": sum(len(e.library_rejected) for e in episodes),
+        "diagnoses": dict(Counter(v.get("diagnosis", "") for v in vitals)),
+    }
+
+
+def agrees(judgment: dict[str, Any]) -> bool:
+    """Did the organism's own claim match the judge? (A belief or a finding claims support.)"""
+    claimed = {"confirmed": "supports", "contradicted": "contradicts"}.get(judgment.get("agent", ""), "supports")
+    return judgment.get("judge") == claimed
+
+
+def exam_metrics(before: Any, after: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if before is not None:
+        out.update({"exam_before": before.score, "exam_grounded_before": before.grounded_score})
+    if after is not None:
+        out.update({"exam_after": after.score, "exam_grounded_after": after.grounded_score, "exam_questions": len(after.answers)})
+    if before is not None and after is not None:
+        out["exam_gain"] = round(after.score - before.score, 3)
+        out["exam_grounded_gain"] = round(after.grounded_score - before.grounded_score, 3)
+    return out
+
+
+RECORD_FIELDS = (
+    "id", "text", "trigger", "parent_id", "born_at", "status", "status_reason", "unknown", "known", "answer_form", "interest",
+    "reachable", "wish", "wish_reason", "intensity", "interest_fit", "decision", "decision_reason", "identified_as",
+    "satisfied_at", "satisfied_incidentally", "origin_sources", "history",
+)
+
+
+def write_records(path: Path, state: MindState) -> None:
+    """Every curiosity of this life with its record and its fate, one per line (for analysis and rating sheets)."""
+    with path.open("w", encoding="utf-8") as f:
+        for q in state.questions.values():
+            row = {k: getattr(q, k) for k in RECORD_FIELDS}
+            row["visits"] = len(q.visits)
+            row["satisfied_by"] = [{"quote": e.quote, "source": e.where} for e in q.satisfied_by]
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def deferred_fates(state: MindState) -> dict[str, int]:
+    """What became of the curiosities it once deferred: Inan's 'curious, but not acting', followed to its end."""
+    fates: Counter = Counter()
+    for q in state.questions.values():
+        if not any(": deferred (" in h for h in q.history):
+            continue
+        if q.status == "satisfied":
+            fates["answered while waiting" if q.satisfied_incidentally else "answered after it was pursued again"] += 1
+        elif q.status == "open":
+            fates["pursued again"] += 1
+        elif q.status == "deferred":
+            fates["still waiting"] += 1
+        else:
+            fates[{"faded": "faded", "unanswerable": "let go", "dropped": "let go"}.get(q.status, q.status)] += 1
+    return dict(fates)
+
+
+def write_judge_check(path: Path, episodes: list[Episode], *, seed: str, n: int = 20) -> None:
+    """A random sample of the judge's decisions, for a person to check by hand."""
+    rows = [(e.heartbeat, j) for e in episodes for j in e.judgments]
+    if not rows:
+        return
+    sample = sorted(random.Random(seed).sample(rows, min(n, len(rows))), key=lambda row: row[0])
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["heartbeat", "kind", "claim", "source", "quote", "organism_said", "judge_said", "judge_reason", "your_verdict"])
+        for hb, j in sample:
+            writer.writerow([hb, j.get("kind"), j.get("claim"), j.get("source"), j.get("quote"), j.get("agent"), j.get("judge"), j.get("reason"), ""])
+
+
+def render_report(meta: dict[str, Any], m: dict[str, Any], episodes: list[Episode], state: MindState, before: dict[str, Any], after: dict[str, Any]) -> str:
+    limit = f", time limit {meta['time_limit_minutes']:g} min" if meta.get("time_limit_minutes") else ""
+    architecture = meta.get("architecture", "drive")
+    if meta.get("ablated"):
+        architecture += f" (without: {', '.join(meta['ablated'])})"
+    lines = [
+        f"# Session {meta['session_id']}",
+        "",
+        f"Model `{meta['model']}`, judge `{meta.get('judge_model') or 'off'}`, curiosity **{architecture}**, policy **{meta['policy']}**, "
+        f"web library {'on' if meta['web'] else 'off'}, seed {meta['random_seed']}{limit}. Life: `{meta['home']}`.",
+        "",
+        "## Summary",
+        "",
+        f"- **{m['heartbeats']} heartbeats in {m['minutes']:g} minutes** ({m['heartbeats_per_hour']:g} per hour); "
+        f"rested {m['rest_minutes']:g} min ({m['cooling_rests']} cooling rests); {m['failed_heartbeats']} heartbeats where the model did not answer.",
+        f"- **Questions:** visited {m['distinct_questions']}; new questions born: {m['questions_born']} "
+        f"({_counts(m['questions_born_by_trigger'])}); settled {m['questions_settled']}, dormant {m['questions_dormant']}, "
+        f"judged unanswerable {m['questions_unanswerable']}.",
+        *_records_lines(meta, m),
+        f"- **Beliefs:** new {m['beliefs_new']} ({m['beliefs_grounded']} grounded in verified quotes, "
+        f"{m['beliefs_interpretive']} interpretations); earlier beliefs doubted {m['beliefs_doubted']}, "
+        f"doubts refused because no text contradicted the belief {m.get('paper_doubts', 0)}; reinforced {m['beliefs_reinforced']}.",
+        f"- **Honesty:** {m['quotes_verified']} quotes verified in the sources, {m['quotes_rejected']} invented quotes caught "
+        f"(fabrication rate {m['fabrication_rate']:.0%}).",
+        f"- **Surprise:** mean {m['mean_surprise']:.2f} (first half {m['surprise_first_half']:.2f}, second half "
+        f"{m['surprise_second_half']:.2f}); the texts addressed {m['mean_informativeness']:.0%} of its expectations on average.",
+        f"- **Learning:** questions revisited: {m['revisited_questions']}; on them, surprise changed by "
+        f"{m['surprise_change_on_revisits']:+.2f} from first to last visit (negative means it predicts the texts better).",
+        f"- **Predictions:** {m['predictions']} made, {m['predictions_hedged']} of them hedged ({m['hedged_rate']:.0%}) and "
+        f"{m.get('predictions_weak', 0)} saying only that something has an influence; "
+        f"the texts confirmed {m['predictions_confirmed']} and contradicted {m['predictions_contradicted']}; {_brier_text(m)}.",
+        _judge_line(m),
+        f"- **Debate:** Wonder {_counts({_STANCE_WORD.get(k, k): v for k, v in m['stances'].items()})}; the skeptic quoted a passage in "
+        f"{m['skeptic_quoted_rate']:.0%} of debates; {m['vague_answers']} answers were too vague to be wrong and {m.get('hedged_answers', 0)} hedged (may, could); "
+        f"{m.get('strawman_falsifiers', 0)} would have been wrong only if nothing at all were at play; "
+        f"{m['dialogue_unverified_citations']} turns cited papers it was not shown (unverified), "
+        f"{m.get('dialogue_invented_quotes', 0)} put in quotation marks words that are in none of the texts.",
+        f"- **Staying on topic and in depth:** mean closeness of the questions it worked on {m['mean_on_topic']:.2f}; "
+        f"{m['questions_set_aside']} proposed questions set aside as off topic, {m['questions_held_back']} kept for a second look, "
+        f"{m.get('questions_unknowable', 0)} not asked because they were about things nobody has identified.",
+        f"- **Library:** {m['library_visits']} visits, {m['acquisitions']} texts acquired ({_counts(m['acquisitions_by_kind'])}); "
+        f"{m['library_rejected']} found but off topic; {m['library_busy']} searches impossible because a source was busy.",
+        f"- **Self-regulation:** {_counts({DIAGNOSES.get(k, {}).get('name', k): v for k, v in m['diagnoses'].items()}) or 'no reflection in this session'}.",
+    ]
+    if m.get("library_busy_why"):
+        lines.append("- **Why sources were busy:** " + "; ".join(
+            f"{host} {n} times ({why}{_BUSY_HINTS.get((host, why.split(',')[0]), '')})" for (host, why), n in m["library_busy_why"]
+        ) + ".")
+    if m.get("own_claims_met"):
+        lines.append(f"- **Your draft:** its claims came up {m['own_claims_met']} times; they never count as evidence for "
+                     "themselves (the research map sets them against what the other texts say).")
+    if "exam_after" in m or "exam_before" in m:
+        took = f"{m['exam_before']:.0%} (grounded {m['exam_grounded_before']:.0%})" if "exam_before" in m else "not taken"
+        then = f"{m['exam_after']:.0%} (grounded {m['exam_grounded_after']:.0%})" if "exam_after" in m else "not taken"
+        lines.append(f"- **Exam:** before {took}, after {then}. Grounded answers cite a belief backed by a verified quote.")
+    if before["understanding"] != after["understanding"]:
+        heading = "What it thinks about its topic" if state.topic.mode == "research" else "Its theory of curiosity"
+        lines += ["", f"## {heading}", "", f"- Before: {before['understanding']}", f"- After: {after['understanding']}"]
+    grounded = [
+        (bid, state.beliefs[bid]) for e in episodes for bid in e.new_belief_ids
+        if bid in state.beliefs and state.beliefs[bid].evidence
+    ]
+    if grounded:
+        lines += ["", "## New beliefs grounded in the texts", ""]
+        lines += [f'- **{bid}** {b.statement} - "{one_line(b.evidence[0].quote, 200)}" (*{b.evidence[0].where}*)' for bid, b in grounded[:10]]
+    ended = [(e.heartbeat, s) for e in episodes for s in e.satisfied]
+    if ended:
+        lines += ["", "## Curiosities that ended", "", "A verified quote let it identify what it did not know; the judge agreed.", ""]
+        for hb, s in ended[:12]:
+            waiting = " (while it was not pursuing it)" if s.get("incidental") else ""
+            lines.append(
+                f"- heartbeat {hb}, **{s.get('question_id')}**{waiting}: {s.get('unknown')} - "
+                f'"{one_line(s.get("quote", ""), 200)}" (*{s.get("source")}*)'
+            )
+    doubted = [(e.heartbeat, bid) for e in episodes for bid in e.doubted_belief_ids if bid in state.beliefs]
+    if doubted:
+        lines += ["", "## Beliefs it came to doubt", ""]
+        lines += [f"- heartbeat {hb}: **{bid}** {state.beliefs[bid].statement}" for hb, bid in doubted[:10]]
+    born = [(e.heartbeat, qid) for e in episodes for qid in e.new_question_ids if qid in state.questions]
+    if born:
+        lines += ["", "## Questions it gave birth to", ""]
+        lines += [f"- heartbeat {hb} ({state.questions[qid].trigger}): **{qid}** {state.questions[qid].text}" for hb, qid in born[:12]]
+    reads = [e for e in episodes if e.acquisitions or e.library_misses or e.library_owned or e.library_busy or e.library_rejected]
+    if reads:
+        lines += ["", "## Library visits", ""]
+        for e in reads:
+            line = f"- heartbeat {e.heartbeat}, for {e.question_id}: brought back {'; '.join(e.acquisitions) or 'nothing new'}"
+            if e.library_owned:
+                line += f"; already had: {'; '.join(e.library_owned)}"
+            if e.library_misses:
+                line += f"; not found: {'; '.join(e.library_misses)}"
+            if e.library_rejected:
+                line += f"; found but off topic: {'; '.join(e.library_rejected)}"
+            if e.library_busy:
+                line += f"; source busy: {'; '.join(e.library_busy)}"
+            lines.append(line)
+    lines += [
+        "",
+        "## Heartbeat by heartbeat",
+        "",
+        "| hb | question | surprise | addressed | confidence | beliefs | questions | library |",
+        "|---:|---|---:|---:|---|---:|---:|---|",
+    ]
+    for e in episodes:
+        lines.append(
+            f"| {e.heartbeat} | {e.question_id}: {one_line(e.question, 70).replace('|', '/')} | {e.prediction_error:.2f} | "
+            f"{e.informativeness:.0%} | {e.prior_confidence:.2f} -> {e.confidence:.2f} | {len(e.new_belief_ids)} | "
+            f"{len(e.new_question_ids)} | {len(e.acquisitions)} |"
+        )
+    lines += [
+        "",
+        "Compare sessions: `python scripts/compare_sessions.py <session folder> <session folder> ...`",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+_STANCE_WORD = {"defend": "defended", "revise": "revised", "concede": "conceded"}
+
+
+def _records_lines(meta: dict[str, Any], m: dict[str, Any]) -> list[str]:
+    """What happened to its curiosities, in the records architecture."""
+    if meta.get("architecture") != "records":
+        return []
+    return [
+        f"- **Curiosities:** {m.get('records_made', 0)} questions made precise (what exactly is unknown, what would answer it); "
+        f"{m.get('records_not_made', 0)} proposed questions were not born because it could not say what it did not know; "
+        f"{m.get('records_failed', 0)} times it could not say it for the question it chose. "
+        f"{m.get('curiosities_satisfied', 0)} curiosities ended ({m.get('satisfied_while_waiting', 0)} while it was pursuing something "
+        f"else) after {m.get('looks_to_satisfaction', 0):g} looks on average; {m.get('satisfaction_refused', 0)} times it believed "
+        f"a passage answered one, but the quote or the judge did not bear that out. Not asked again because already answered: "
+        f"{m.get('already_satisfied_not_asked', 0)}. Deferred {m.get('questions_deferred', 0)}, faded {m.get('questions_faded', 0)}, "
+        f"let go {m.get('questions_dropped', 0)}.",
+        f"- **Curious, but not acting:** of the curiosities born, {m.get('pursued_at_birth', 0)} were pursued at once and "
+        f"{m.get('deferred_at_birth', 0)} deferred; reasons for deferring: {_counts(_reason_words(m.get('deferral_reasons', {})))}; "
+        f"{m.get('pursued_after_waiting', 0)} waiting curiosities were pursued after a text spoke of them. What became of every "
+        f"curiosity it ever deferred: {_counts(m.get('deferred_fates', {}))}.",
+        f"- **Attention and transience:** in {m.get('attention_heartbeats', 0)} heartbeats something drew its attention "
+        f"({_counts(_attention_words(m.get('attention_events', {})))}); in {m.get('attention_to_curiosity', 0):.0%} of them a "
+        f"curiosity was born. Faded {m.get('questions_faded', 0)}; let go because nothing could answer them "
+        f"{m.get('let_go_unreachable', 0)}; deferred after looking too long {m.get('deferred_after_looking', 0)}.",
+        f"- **Voluntary exposure and interests:** in spare time it went back {m.get('returns_to_texts', 0)} times to texts that "
+        f"had made it curious ({m.get('born_on_return', 0)} curiosities born there); of what it read, "
+        f"{m.get('read_from_curious_texts', 0):.0%} came from texts that had already made it curious (first half "
+        f"{m.get('read_from_curious_first_half', 0):.0%}, second half {m.get('read_from_curious_second_half', 0):.0%}); "
+        f"closeness of new curiosities to what it had come to be interested in: {m.get('interest_fit_of_new', 0):.2f} "
+        f"(second half {m.get('interest_fit_second_half', 0):.2f}).",
+    ]
+
+
+_ATTENTION_WORDS = {"surprise": "contradicted predictions", "unexpected": "unexpected passages", "novelty": "texts never read before"}
+
+
+def _attention_words(kinds: dict[str, int]) -> dict[str, int]:
+    return {_ATTENTION_WORDS.get(k, k): v for k, v in kinds.items()}
+
+
+_REASON_WORDS = {
+    "wish": "it wanted to come back later", "no-texts": "no text spoke of it", "room": "stronger curiosities came first",
+    "person": "a person asked", "texts": "its texts spoke of it", "can-fetch": "it could look for texts",
+}
+
+
+def _reason_words(kinds: dict[str, int]) -> dict[str, int]:
+    return {_REASON_WORDS.get(k, k): v for k, v in kinds.items()}
+
+
+def _brier_text(m: dict[str, Any]) -> str:
+    if m.get("mean_brier") is None:
+        return "no prediction was confirmed or contradicted, so there is no Brier score yet"
+    halves = ""
+    if m.get("brier_first_half") is not None:
+        halves = f" (first half {m['brier_first_half']:.2f}, second half {m['brier_second_half']:.2f})"
+    return f"mean Brier score {m['mean_brier']:.2f}{halves}; 0 is perfect, 0.25 is a coin flip"
+
+
+def _judge_line(m: dict[str, Any]) -> str:
+    if not m["judge_pairs"]:
+        return "- **The judge:** checked nothing in this session (off, or no quotes to check)."
+    return (
+        f"- **The judge:** checked {m['judge_pairs']} claim/quote pairs and agreed with the organism on "
+        f"{m['judge_agreement']:.0%}; {m['judge_rejected']} quotes were beside the point and did not count. "
+        "Check a sample by hand: judge_check.csv."
+    )
+
+
+def _mean(values: list[float]) -> float:
+    return round(sum(values) / len(values), 3) if values else 0.0
+
+
+def _share(episodes: list[Episode], part: str, whole: str) -> float:
+    total = sum(getattr(e, whole) for e in episodes)
+    return round(sum(getattr(e, part) for e in episodes) / total, 3) if total else 0.0
+
+
+def _counts(counts: dict[str, int]) -> str:
+    return ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])) or "none"
+
+
+_BUSY_HINTS = {
+    ("api.semanticscholar.org", "HTTP 429"): ": a free API key helps, see docs/RESEARCHER.md",
+    ("export.arxiv.org", "HTTP 429"): ": arXiv allows one request every few seconds",
+}
+
+
+def _busy_reasons(episodes: list[Episode]) -> list[tuple[tuple[str, str], int]]:
+    """(host, why) and how often, from lines such as 'paper: x (api.semanticscholar.org: HTTP 429, too many requests)'."""
+    counts: Counter = Counter()
+    for e in episodes:
+        for line in e.library_busy:
+            for host, why in re.findall(r"([a-z0-9-]+(?:\.[a-z0-9-]+)+): ([^;()]+(?:\([^)]*\))?)", line):
+                counts[(host, why.strip())] += 1
+    return [(key, n) for key, n in counts.most_common(6)]

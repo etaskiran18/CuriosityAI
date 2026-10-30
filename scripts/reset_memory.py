@@ -12,6 +12,8 @@ for rel in [
     "memory/journal_v5.jsonl",
     "memory/journal_v6.jsonl",
     "memory/curiosity_theory_state_v6.json",
+    "memory/journal_v7.jsonl",
+    "memory/curiosity_theory_state_v7.json",
 ]:
     p = ROOT / rel
     if p.is_dir():

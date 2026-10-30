@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class LLMConfig(BaseModel):
@@ -193,6 +193,214 @@ class PublishingConfig(BaseModel):
     webhook_url_env: str = "CURIOSITY_PUBLISH_WEBHOOK"
 
 
+class TemperamentConfig(BaseModel):
+    """Starting weights of the organism's curiosity drive (see organism/drive.py)."""
+    gap: float = 0.30
+    learning_progress: float = 0.30
+    surprise: float = 0.15
+    novelty: float = 0.10
+    importance: float = 0.15
+    boredom_patience: int = 3
+    exploration_temperature: float = 0.15
+    topic_anchor: float = 0.6  # how much questions far from the main topic lose their pull (0 = none)
+
+
+class JudgeConfig(BaseModel):
+    """A separate, blind check of every claim the organism makes about a quote (organism/judge.py).
+
+    The judge sees only a claim and a quote, never the organism's reasoning or
+    verdict. Leave model empty to use the main model; on a bigger machine a
+    larger judge model makes the measurements more trustworthy.
+    """
+    enabled: bool = True
+    model: str = ""        # e.g. qwen2.5:14b; empty = the main model
+    base_url: str = ""     # empty = the main model's server
+    temperature: float = 0.0
+    max_tokens: int = 500
+
+
+class TopicConfig(BaseModel):
+    """What a philosophy life studies. Researcher mode replaces this with the person's topic."""
+    title: str = "the philosophy of curiosity"
+    description: str = (
+        "What curiosity is; how it begins (wonder, doubt, the awareness of not knowing) and how it ends "
+        "(answers, boredom); when it is a virtue and when a vice; and how it drives inquiry, "
+        "as discussed by philosophers and psychologists."
+    )
+    keywords: list[str] = Field(default_factory=lambda: [
+        "curiosity", "curious", "wonder", "doubt", "inquiry", "question", "ignorance", "knowledge", "know",
+        "perplexity", "aporia", "interest", "attention", "novelty", "surprise", "understanding", "truth",
+        "belief", "opinion", "desire", "wisdom", "philosophy", "philosopher", "vice", "virtue", "boredom",
+        "skepticism", "reason", "mind",
+    ])
+    # A new question rated below this (0..1) by the judge is set aside as off topic.
+    min_relevance: float = 0.3
+
+
+class ResearchConfig(BaseModel):
+    """Researcher mode: live.py --topic "..." --papers <folder> (see docs/RESEARCHER.md)."""
+    topic: str = ""             # set by --topic; a new life is then born as a researcher on this topic
+    papers_dir: str = ""        # your PDFs, .txt or .md papers
+    own_article: str = ""       # set by --feed-file: a new life reads its beginning first, to learn what the topic means
+    own_passages: int = 1       # at most this many passages of the person's own work per heartbeat; the rest are other texts
+    own_work_is_evidence: bool = False  # the person's draft and notes are claims to test, not evidence for themselves
+    until_year: int | None = None  # read only papers published up to this year (time-split tests)
+    seed_questions: int = 5     # how many first questions it writes for itself
+    max_pdf_pages: int = 300
+
+
+class BodyConfig(BaseModel):
+    """Taking care of the computer the organism lives in (see organism/body.py)."""
+    enabled: bool = True
+    breath_seconds: float = 10          # short pause after every heartbeat
+    work_minutes: float = 20            # after this much thinking...
+    rest_minutes: float = 5             # ...rest this long (0 turns the rhythm off)
+    gpu_temperature_guard: bool = True  # read the NVIDIA GPU temperature with nvidia-smi
+    max_gpu_temp_c: float = 80          # stop thinking at this GPU temperature...
+    resume_gpu_temp_c: float = 65       # ...until the GPU has cooled to this
+    check_every_seconds: float = 15
+    pause_on_battery: bool = True       # laptops: think only while plugged in
+
+    @model_validator(mode="after")
+    def resume_below_max(self):
+        if self.resume_gpu_temp_c >= self.max_gpu_temp_c:
+            self.resume_gpu_temp_c = self.max_gpu_temp_c - 10
+        return self
+
+
+class LibrarianConfig(BaseModel):
+    """Growing the library from the internet (see organism/librarian.py)."""
+    enabled: bool = False                # live.py --web turns it on
+    sources: list[str] = Field(default_factory=lambda: ["wikipedia", "gutenberg", "semantic_scholar", "arxiv"])
+    hunger_informativeness: float = 0.34 # a visit where the texts said this little sends it to the library
+    cooldown_heartbeats: int = 4         # do not go back for the same question too soon
+    max_articles_per_hour: int = 12      # Wikipedia articles
+    max_books_per_hour: int = 2          # whole books from Project Gutenberg
+    max_papers_per_hour: int = 10        # paper abstracts (Semantic Scholar, arXiv)
+    # A text is kept only if it shares at least this many words with the question and the
+    # topic, beyond the words searched for ("Curiosity" the Mars rover shares only its name).
+    min_relevance_words: int = 2
+    max_book_chars: int = 2_500_000
+    catalog_max_age_days: int = 30       # refresh Project Gutenberg's catalogue after this
+    gutenberg_mirror: str = "https://aleph.pglaf.org"  # Gutenberg asks programs to use mirrors
+    timeout_seconds: float = 45
+    min_request_interval_seconds: float = 1.0
+    arxiv_interval_seconds: float = 3.0  # arXiv asks for at most one request every three seconds
+    semantic_scholar_api_key_env: str = "SEMANTIC_SCHOLAR_API_KEY"
+    # Sent in the User-Agent, as Wikimedia and Gutenberg ask of programs. You may add your email.
+    contact: str = "https://github.com/etaskiran18/CuriosityAI"
+
+
+CURIOSITY_PARTS = ("decision", "satisfaction", "attention", "transience", "exposure")
+
+
+class CuriosityConfig(BaseModel):
+    """How curiosity is modelled (see docs/CURIOSITY_RECORDS.md).
+
+    ``drive`` (v9): each open question has a pull, and the strongest is pursued at once: being curious and
+    acting are the same thing. ``records`` (v10, after Inan 2012 and Ady et al. 2022): curiosity is a state
+    with an object, kept as a record of what exactly is unknown and what would answer it; whether to pursue
+    it now is a separate decision. Each part of ``records`` can be switched off to see what it does.
+    """
+    architecture: str = "drive"  # drive | records
+    decision: bool = True       # a separate decision: pursue now, defer, or let go, with a reason
+    satisfaction: bool = True   # a curiosity ends when a verified quote lets it identify the unknown (model, then judge)
+    attention: bool = True      # surprise and novelty only draw attention; a question is born when an unknown is named
+    transience: bool = True     # a curiosity fades when attention stays elsewhere; unreachable ones are let go
+    exposure: bool = True       # voluntary exposure: in spare time it returns to texts that made it curious
+    max_pursued: int = 6        # curiosities pursued at once; more are deferred
+    satisfaction_checks: int = 1  # besides the heartbeat's own question, curiosities checked against what it read
+    pursuit_limit: int = 6      # looks without finding the answer before a pursued curiosity is deferred
+    intensity_decay: float = 0.9  # per heartbeat, while nothing touches a curiosity
+    fade_below: float = 0.15    # a deferred curiosity this weak has faded
+
+    @property
+    def records(self) -> bool:
+        return self.architecture == "records"
+
+    def on(self, part: str) -> bool:
+        """Is this part of the records architecture at work?"""
+        return self.records and bool(getattr(self, part))
+
+    def ablated(self) -> list[str]:
+        return [part for part in CURIOSITY_PARTS if not getattr(self, part)] if self.records else []
+
+
+class OrganismConfig(BaseModel):
+    """v8 curiosity organism: a persistent mind whose behavior is driven by curiosity."""
+    home: str = "memory/organism"
+    name: str = "Curiosity"
+    # lexical = BM25 over the corpus (no extra dependencies); chroma = reuse v7 vector memory
+    retrieval: str = "lexical"
+    # Compilations of excerpts would duplicate the primary texts and hide who really said what.
+    library_exclude: list[str] = Field(default_factory=lambda: ["curiosity_core_reader.md"])
+    chunk_chars: int = 1200
+    chunk_overlap_chars: int = 200
+    evidence_passages: int = 5
+    max_passages_per_source: int = 2
+    passage_chars: int = 1100
+    max_web_results: int = 2
+    web_min_relevance: float = 0.25
+    dialogue_turns: int = 3
+    heartbeats_per_run: int = 5
+    reflect_every: int = 5
+    random_seed: int | None = None
+    seed_questions: list[str] = Field(default_factory=lambda: [
+        "Plato says philosophy begins in wonder: what exactly is wonder, and is it the same thing as curiosity?",
+        "Meno asks how anyone can search for what they do not know. How does curiosity get started if we cannot recognise what we lack?",
+        "Dewey says curiosity becomes intellectual when a question is held open in one's own mind. What keeps a question alive, and what kills it?",
+        "When does curiosity turn into a vice, a restless hunger for novelty rather than a love of understanding?",
+        "Is doubt the engine of inquiry or its enemy?",
+    ])
+    newborn_confidence: float = 0.25
+    max_initial_confidence: float = 0.5
+    max_confidence_step: float = 0.25
+    # You cannot be more confident than your evidence allows:
+    # ceiling = base + per_support * (verified confirmations gathered for the question)
+    evidence_ceiling_base: float = 0.5
+    evidence_ceiling_per_support: float = 0.1
+    settle_confidence: float = 0.8
+    settle_max_error: float = 0.2
+    max_open_questions: int = 25
+    # One new question per heartbeat at most: depth before breadth.
+    max_new_questions_per_heartbeat: int = 1
+    # A question born from a gap or an objection waits until its parent has had this many looks:
+    # a gap is a gap only if it is still there on the second look. (Surprises and contradictions
+    # the judge accepted give birth at once.)
+    min_visits_before_children: int = 2
+    news_bonus: float = 0.25  # pull back to a question when texts were fetched for it
+    dedupe_similarity: float = 0.45
+    # Ask once more when predictions are hedged ("may", "might"): they could never be wrong.
+    prediction_retry: bool = True
+    default_probability: float = 0.7  # when a prediction comes without one
+    # An answer leaning on this many non-committal phrases ("complex", "multifaceted",
+    # "various factors") is too vague to be wrong, so its confidence cannot rise.
+    vague_threshold: int = 2
+    exam_path: str = "data/exams/philosophy_of_curiosity.json"
+    lp_window: int = 4
+    lp_prior: float = 0.6
+    surprise_decay: float = 0.85
+    refractory: float = 0.5
+    boredom_lp_floor: float = 0.08
+    boredom_rate: float = 0.35
+    incubation_beliefs: int = 2
+    homeostasis: bool = True
+    export_experience: bool = True
+    trace_llm: bool = False  # write every prompt and raw model reply to llm_trace.jsonl (for tuning prompts)
+    max_tokens_text: int = 260
+    max_tokens_json: int = 1000  # a reply cut off by this limit is repaired, keeping what was complete
+    temperament: TemperamentConfig = Field(default_factory=TemperamentConfig)
+    body: BodyConfig = Field(default_factory=BodyConfig)
+    librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
+    judge: JudgeConfig = Field(default_factory=JudgeConfig)
+    topic: TopicConfig = Field(default_factory=TopicConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
+    # How the next question is chosen: curiosity (the drive), random, or novelty (least visited).
+    # The last two are baselines for experiments.
+    policy: str = "curiosity"
+    curiosity: CuriosityConfig = Field(default_factory=CuriosityConfig)
+
+
 class ProjectConfig(BaseModel):
     name: str = "Curiosity Epistemic Loop"
     version: str = "7.0.0"
@@ -216,6 +424,7 @@ class AppConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     publishing: PublishingConfig = Field(default_factory=PublishingConfig)
+    organism: OrganismConfig = Field(default_factory=OrganismConfig)
 
 
 def load_config(path: str | Path = "config.yaml") -> AppConfig:

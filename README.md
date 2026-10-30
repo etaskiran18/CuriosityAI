@@ -1,3 +1,87 @@
+# Curiosity AI
+
+A local-first research system that tries to make an AI **curious**, not only able to talk about curiosity.
+
+## v10: curiosity records, after İnan and Ady
+
+`--architecture records` models curiosity as a **state with an object**, after İlhan İnan's *The Philosophy
+of Curiosity* (2012) and Ady et al.'s five properties of specific curiosity (2022): each curiosity says what
+exactly is unknown and what would answer it; pursuing it is a **separate decision** ("curious, but not now,
+because ..."); it **ends** when a verified quote answers it, **fades** when attention stays elsewhere, and the
+organism **returns** to texts that made it curious. Each part can be switched off (`--ablate`), and trap tests,
+forking, blind rating sheets and a no-loop baseline help evaluate it. See
+**[docs/CURIOSITY_RECORDS.md](docs/CURIOSITY_RECORDS.md)** and [CHANGELOG_v10.md](CHANGELOG_v10.md).
+
+On a computing cluster (Koç University's VALAR), one life per model size, with the same judge and books for
+all: **[hpc/valar/README.md](hpc/valar/README.md)**.
+
+## v9: the Curiosity Organism, now measured honestly, and a researcher mode
+
+v1 to v7 ask a language model to write about curiosity and then grade the writing. v8 added an
+organism whose **behavior is driven by curiosity**. v9 makes its measurements trustworthy and lets it
+study **your own research topic** (see [CHANGELOG_v9.md](CHANGELOG_v9.md)):
+
+- Predictions must be able to fail: who will say what, with a **probability**, scored with the Brier
+  score. Hedges like "may" and "might" are refused.
+- A **blind judge** (optionally a larger model) decides what each quote really supports; a sample is
+  saved so you can check the judge by hand.
+- It **stays on its topic** (the judge rates every new question; at most one is born per heartbeat),
+  and its **self-diagnosis** now counts only progress backed by evidence.
+- A **real debate**: the Skeptic must bring evidence, Wonder must defend, revise or concede, and an
+  answer too vague to be wrong earns no confidence.
+- An **outside exam** before and after a session measures what it learned by reading.
+- **Researcher mode**: `--topic "..." --papers <folder>` turns it into a curious assistant that reads
+  your PDFs and keeps a **research map** of open questions, hypotheses, surprises and gaps; your own
+  draft is a set of claims it tests against the papers, never evidence for itself. See
+  **[docs/RESEARCHER.md](docs/RESEARCHER.md)**, and **[docs/ONE_TEST.md](docs/ONE_TEST.md)** for a
+  one-hour test of everything.
+
+What v8 brought:
+
+- It keeps a persistent **mind**: open questions, beliefs with evidence, and a temperament.
+- A **curiosity drive** chooses what to think about next: the information gap, learning progress,
+  surprise, novelty, importance, and boredom.
+- It **predicts before it reads**, so the classic texts can surprise it. Surprise and contradiction
+  give birth to new questions.
+- An **inner dialogue** between Wonder and Skeptic argues over every finding.
+- **Only quotes that really appear in the source count as evidence**, and confidence can never rise
+  above what the evidence allows.
+- Every few heartbeats it **reflects on its own way of being curious**. It diagnoses itself (healthy
+  wonder, restless *curiositas*, dogmatic slumber, aporetic numbness) and adjusts its temperament.
+- Grounded episodes are exported as **training data** for a future fine-tune.
+- It **takes care of your computer**: it rests regularly, stops when the NVIDIA GPU gets hot (read
+  with `nvidia-smi`) until it has cooled down, and on a laptop thinks only while plugged in.
+- It **grows its own library** (`--web`): when its books are silent on a question, it looks things up
+  on Wikipedia, downloads public-domain books from Project Gutenberg, and reads paper abstracts
+  (Semantic Scholar, arXiv), and it records why it acquired each text.
+- Every session ends with a **report and metrics**, and baselines (`--policy random|novelty`) make
+  controlled experiments possible. See **[docs/RESEARCH.md](docs/RESEARCH.md)**.
+
+```bash
+pip install -r requirements.txt
+ollama pull mistral:7b-instruct
+python live.py                      # live 5 heartbeats
+python live.py --minutes 60 --web --exam   # a 1-hour session that can grow its library, with the exam before and after
+python live.py --topic "How do lithium-ion batteries age?" --papers ~/papers --minutes 60 --web   # researcher mode
+python live.py --add-book "Hobbes Leviathan"   # add a public-domain book to the library
+python live.py --status             # look inside its mind
+python live.py --ask "Can a machine be curious, or only act as if it were?"
+python live.py --forever            # let it live until Ctrl+C (it rests to keep the PC cool)
+python live.py --check              # check this computer's setup and say what to fix
+```
+
+On Windows, run it inside WSL with your NVIDIA GPU: see **[docs/WSL_SETUP.md](docs/WSL_SETUP.md)**.
+
+Then read `memory/organism/diary.md`. **[docs/ORGANISM.md](docs/ORGANISM.md)** explains the design:
+every mechanism and the philosophical idea it comes from (Plato, Meno's paradox, Peirce, Dewey,
+James, Kant, Augustine, Heidegger, and the psychology of curiosity).
+
+Run the tests with `python -m pytest`. They need no Ollama.
+
+The v7 pipeline below (`run.py`) is unchanged.
+
+---
+
 # Curiosity AI v6 — Aggressive Depth Philosophical Loop
 
 This is a local-first closed-loop philosophical AI system designed for **autonomous curiosity-driven inquiry**, not normal ask-answer chat.

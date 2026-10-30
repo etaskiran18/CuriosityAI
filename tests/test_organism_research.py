@@ -1,0 +1,459 @@
+"""Researcher mode, the researcher's papers, the outside exam and the research map."""
+from __future__ import annotations
+
+import csv
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from curiosity_ai.organism import CuriosityOrganism
+from curiosity_ai.organism.exam import exam_notes, load_exam, run_exam
+from curiosity_ai.organism.papers import clean_pdf_text, ingest_papers, opening, pdf_text
+from curiosity_ai.organism.research_map import render_research_map
+
+from .organism_fakes import ScriptedLLM
+
+REPO = Path(__file__).resolve().parent.parent
+LINES = [
+    "Lithium-ion cells lose capacity as the solid electrolyte interphase grows on the anode.",
+    "Each charge cycle consumes a little lithium in side reactions at the interphase.",
+    "Fast charging at low temperature causes lithium plating, which speeds up capacity fade.",
+    "Calendar aging continues even when the cell rests, faster at high state of charge.",
+]
+
+
+def minimal_pdf(lines: list[str], title: str = "") -> bytes:
+    """A one-page PDF with real text, built by hand so the test needs no PDF writer."""
+    text_ops = " ".join(f"({line}) Tj T*" for line in lines)
+    content = f"BT /F1 10 Tf 72 720 Td 14 TL {text_ops} ET".encode()
+    info = f"<< /Title ({title}) >>".encode() if title else None
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ] + ([info] if info else [])
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % off for off in offsets)
+    trailer_info = b" /Info 6 0 R" if info else b""
+    out += b"trailer\n<< /Size %d /Root 1 0 R%s >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, trailer_info, xref)
+    return out
+
+
+@pytest.fixture
+def research_config(config):
+    config.organism.research.topic = "How do lithium-ion batteries age?"
+    return config
+
+
+@pytest.fixture
+def papers(tmp_path: Path) -> Path:
+    src = tmp_path / "my_papers"
+    src.mkdir()
+    (src / "aging.pdf").write_bytes(minimal_pdf(LINES, title="Mechanisms of battery aging"))
+    (src / "notes.md").write_text("---\ntitle: My lab notes\nauthor: Me\n---\n\n" + " ".join(LINES) * 2, encoding="utf-8")
+    (src / "scan.pdf").write_bytes(minimal_pdf([]))
+    return src
+
+
+# -- papers --------------------------------------------------------------------------
+
+
+def test_pdf_text_keeps_page_markers_and_the_title():
+    meta, text = pdf_text_from_bytes(minimal_pdf(LINES, title="Mechanisms of battery aging"))
+    assert meta["title"] == "Mechanisms of battery aging" and meta["pages"] == "1"
+    assert text.startswith("[page 1]") and "solid electrolyte interphase" in text
+
+
+def pdf_text_from_bytes(data: bytes):
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "p.pdf"
+        path.write_bytes(data)
+        return pdf_text(path)
+
+
+def test_broken_words_are_rejoined():
+    assert clean_pdf_text("infor-\nmation  gap theory") == "information gap theory"
+
+
+def test_papers_are_ingested_once_and_scans_are_reported(papers: Path, tmp_path: Path):
+    dest = tmp_path / "home" / "papers"
+    report = ingest_papers(papers, dest)
+    assert sorted(report.added) == ["aging.pdf", "notes.md"]
+    assert report.failed == [("scan.pdf", "no text found (a scanned PDF needs OCR first)")]
+    again = ingest_papers(papers, dest)
+    assert again.added == [] and sorted(again.already) == ["aging.pdf", "notes.md"]
+    converted = next(p for p in dest.glob("aging_*.md"))
+    assert "source_file:" in converted.read_text(encoding="utf-8")
+
+
+# -- researcher mode ---------------------------------------------------------------------
+
+
+def test_a_researcher_is_born_with_its_own_questions_and_key_terms(research_config):
+    llm = ScriptedLLM()
+    org = CuriosityOrganism(research_config, llm=llm)
+    st = org.state
+    assert org.research and st.topic.mode == "research" and st.topic.title == "Battery aging"
+    assert "capacity fade" in st.topic.keywords
+    assert [q.text for q in st.questions.values()][0].startswith("Why does the solid electrolyte interphase")
+    assert llm.calls == ["TOPIC"]
+    assert "research assistant" in org._sys("ANTICIPATE") and "Battery aging" in org._sys("ANTICIPATE")
+    from curiosity_ai.organism import prompts as P
+
+    assert "research assistant" not in P.JUDGE and "curiosity-driven" not in P.JUDGE  # the judge is nobody's inner voice
+
+
+def test_a_researcher_reads_its_papers_not_the_philosophy_corpus(research_config, papers):
+    org = CuriosityOrganism(research_config, llm=ScriptedLLM())
+    ingest_papers(papers, org.papers_dir)
+    org.senses.notice_new_material()
+    hits = org.senses.library.search("solid electrolyte interphase capacity", k=3)
+    assert hits and all(h.kind == "papers" for h in hits)
+    assert hits[0].citation.startswith("[DOC:")
+    assert all(h.kind != "corpus" for h in org.senses.library.search("wonder is the feeling of a philosopher", k=3))
+
+
+def test_a_researcher_heartbeat_speaks_of_papers(research_config, papers):
+    llm = ScriptedLLM()
+    org = CuriosityOrganism(research_config, llm=llm)
+    ingest_papers(papers, org.papers_dir)
+    org.senses.notice_new_material()
+    ep = org.heartbeat()
+    assert ep is not None and "the papers and notes in your library" in llm.prompts["ANTICIPATE"]
+    assert "Main topic: Battery aging" in llm.prompts["JUDGE"]  # new questions are rated against the topic
+    assert "In its field: How lithium-ion cells lose capacity" in llm.prompts["JUDGE"]  # and against what it means
+
+
+def test_a_failed_topic_setup_still_gives_a_question(config):
+    config.organism.research.topic = "Graphene membranes for desalination"
+    org = CuriosityOrganism(config, llm=ScriptedLLM(fail_steps=("TOPIC",)))
+    assert [q.text for q in org.state.questions.values()] == [
+        "What is known about Graphene membranes for desalination, and what is still unknown?"
+    ]
+    assert org.state.topic.keywords  # taken from the topic's own words
+
+
+def test_the_research_map_shows_questions_hypotheses_and_reading(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(contradict_for_real=True))
+    for _ in range(2):
+        org.heartbeat()
+    text = render_research_map(org)
+    for heading in ("# Research map: the philosophy of curiosity", "## Open questions", "## Surprises", "## Possible gaps", "## Reading list"):
+        assert heading in text
+    assert "I expected" in text  # the scripted contradiction
+
+
+# -- the exam -------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def exam_file(tmp_path: Path) -> Path:
+    path = tmp_path / "exam.json"
+    path.write_text(json.dumps({"title": "Mini exam", "questions": [
+        {"id": "X1", "question": "What feeling marks the philosopher, according to Plato?", "reference": "Wonder.", "source": "Theaetetus"},
+        {"id": "X2", "question": "How long should onions sweat in butter?", "reference": "Gently, before the stock.", "source": "Soups"},
+    ]}), encoding="utf-8")
+    return path
+
+
+def test_the_default_exam_is_well_formed():
+    title, questions = load_exam(REPO / "data" / "exams" / "philosophy_of_curiosity.json")
+    assert len(questions) == 21 and all(q.reference and q.source for q in questions)
+    assert len({q.id for q in questions}) == 21
+
+
+def test_without_notes_nothing_can_be_answered(config, exam_file):
+    llm = ScriptedLLM()
+    org = CuriosityOrganism(config, llm=llm)
+    result = run_exam(org, exam_file, label="before")
+    assert result.score == 0.0 and result.answered == 0
+    assert "EXAM" not in llm.calls and "GRADE" not in llm.calls  # no notes, no questions to the model
+    assert result.path is not None and result.path.exists()
+
+
+def test_the_exam_counts_what_it_learned_by_reading(config, exam_file):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.heartbeat()
+    notes = exam_notes(org, "What feeling marks the philosopher, according to Plato?")
+    assert notes and notes[0][2]  # its grounded belief about Plato comes first
+    result = run_exam(org, exam_file, label="after")
+    first = result.answers[0]
+    assert first.grade == "correct" and first.grounded and first.notes_used
+    assert result.answers[1].grade == "unanswered"
+    assert result.score == pytest.approx(0.5) and result.grounded_score == pytest.approx(0.5)
+
+
+def test_a_session_takes_the_exam_before_and_after(config, exam_file):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    report = org.run_session(2, exam_path=exam_file)
+    m = report.metrics
+    assert m["exam_before"] == 0.0 and m["exam_after"] == pytest.approx(0.5) and m["exam_gain"] == pytest.approx(0.5)
+    assert m["heartbeats"] == 2
+    assert "**Exam:** before 0%" in report.markdown
+    assert len(list((org.home / "exams").glob("*.json"))) == 2
+
+
+# -- checking the judge by hand -----------------------------------------------------------------
+
+
+def test_the_judge_can_be_checked_by_hand(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    report = org.run_session(2)
+    path = report.directory / "judge_check.csv"
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    assert rows and set(rows[0]) >= {"claim", "quote", "organism_said", "judge_said", "your_verdict"}
+    for row in rows:
+        row["your_verdict"] = row["judge_said"]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    out = subprocess.run([sys.executable, str(REPO / "scripts" / "judge_agreement.py"), str(path)], capture_output=True, text=True, check=True)
+    assert "The judge agreed with you:" in out.stdout and "100%" in out.stdout
+    assert report.metrics["judge_pairs"] > 0 and report.metrics["judge_agreement"] is not None
+
+
+def test_journal_headers_are_not_titles():
+    from curiosity_ai.organism.papers import _first_title_line, _looks_like_header
+
+    body = "[page 1]\nSCIENCE ADVANCES | RESEARCH ARTICLE\nSPACE SCIENCES\nLightning-generated whistlers as remote probes of the plasmapause\nJ. Smith"
+    assert _first_title_line(body) == "Lightning-generated whistlers as remote probes of the plasmapause"
+    assert _looks_like_header("Annales Geophysicae (2001) 19: 147-157 (c) European Geophysical Society 2001")
+    assert not _looks_like_header("Statistics and Models of the Electron Plasma Density From the Van Allen Probes")
+
+
+def test_a_quote_copied_cleanly_from_noisy_pdf_text_is_accepted():
+    from curiosity_ai.organism.textutil import verify_quote
+
+    pdf = "Lightning-generated whistlers can serve as remote probes [24, 25] of its structure, and their interaction contributes to space weather."
+    assert verify_quote("Lightning-generated whistlers can serve as remote probes of its structure", pdf)
+    assert verify_quote("whistlers can serve as remote probes of the plasmasphere density after storms", pdf) is None
+    assert verify_quote("remote probes of structure", pdf) is None  # short quotes must match exactly
+
+
+def test_a_researcher_starts_with_no_theory(research_config):
+    org = CuriosityOrganism(research_config, llm=ScriptedLLM())
+    assert org.state.self_model.understanding_of_topic.startswith("I have no theory")
+
+
+def test_the_opening_of_a_paper_is_its_abstract():
+    text = ("[page 1]\nSCIENCE ADVANCES | RESEARCH ARTICLE\nWhistlers in the plasmasphere\nA. Author, B. Author\n"
+            "Abstract: Lightning-generated whistlers carry energy into the inner magnetosphere.\n[page 2]\nIntroduction")
+    assert opening(text).startswith("Lightning-generated whistlers carry energy")
+    plain = "[page 1]\nWhistlers\nA. Author\nLightning-generated whistlers carry wave energy from thunderstorms into the plasmasphere."
+    assert opening(plain).startswith("Lightning-generated whistlers carry wave energy")
+
+
+def test_a_researcher_reads_its_papers_before_it_writes_its_questions(research_config, papers):
+    """A topic's words can be its field's own terms; the papers show what they mean there."""
+    ingest_papers(papers, Path(research_config.organism.home) / "papers")
+    llm = ScriptedLLM()
+    org = CuriosityOrganism(research_config, llm=llm)
+    prompt = llm.prompts["TOPIC"]
+    assert "Mechanisms of battery aging" in prompt and "solid electrolyte interphase grows" in prompt
+    meaning = org.state.topic.meaning
+    assert meaning.startswith("How lithium-ion cells lose capacity")
+    assert meaning in org._sys("ANTICIPATE")  # every step knows what the topic means
+    assert meaning in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert meaning in render_research_map(org)
+
+
+def test_its_own_article_is_read_first(research_config, papers, tmp_path):
+    own = tmp_path / "main.pdf"
+    own.write_bytes(minimal_pdf(["Abstract: We show that capacity fade follows the growth of the interphase layer."], title="My draft on battery aging"))
+    research_config.organism.research.own_article = str(own)
+    ingest_papers(papers, Path(research_config.organism.home) / "papers")
+    llm = ScriptedLLM()
+    CuriosityOrganism(research_config, llm=llm)
+    prompt = llm.prompts["TOPIC"]
+    assert prompt.index("Their own article, My draft on battery aging") < prompt.index("Mechanisms of battery aging")
+    assert "We show that capacity fade follows" in prompt
+
+
+def test_without_papers_or_a_reply_the_topic_has_no_meaning_yet(config):
+    config.organism.research.topic = "Graphene membranes for desalination"
+    org = CuriosityOrganism(config, llm=ScriptedLLM(fail_steps=("TOPIC",)))
+    assert org.state.topic.meaning == "" and "In its field this means" not in org._sys("ANTICIPATE")
+
+
+def test_a_schema_hint_copied_back_is_not_a_meaning(research_config):
+    class Echo(ScriptedLLM):
+        def json_chat(self, system, user, schema_hint, **kwargs):
+            reply = super().json_chat(system, user, schema_hint, **kwargs)
+            if "[TOPIC]" in system:
+                reply["meaning"] = "one sentence in the terms its papers use, not the topic's own words: which process or object it studies"
+            return reply
+
+    org = CuriosityOrganism(research_config, llm=Echo())
+    assert org.state.topic.meaning == "" and org.state.topic.title == "Battery aging"
+
+
+# -- the person's own draft: their claims, not evidence ------------------------------------------
+
+DRAFT = (
+    "Plato: philosophy begins in wonder, the feeling of a philosopher. In this draft I argue that wonder is the first "
+    "step of every inquiry, and that curiosity only follows when wonder finds a problem worth pursuing. "
+) * 6
+
+
+def test_the_persons_own_work_is_read_at_most_once_per_heartbeat(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    org.feed(DRAFT, "My article (draft)", own=True)
+    org.senses.notice_new_material()
+    found = org.senses.observe("Plato says philosophy begins in wonder: what is wonder?")
+    own = [o for o in found if o.own]
+    assert len(own) == 1 and len(found) > 1
+    assert "their claims, not evidence" in own[0].heading
+
+
+def test_the_persons_draft_is_a_claim_to_test_not_evidence(config):
+    llm = ScriptedLLM(stance="DEFEND")
+    org = CuriosityOrganism(config, llm=llm)
+    org.feed(DRAFT, "My article (draft)", own=True)
+    ep = org.heartbeat()
+    first = ep.checks[0]
+    assert first["status"] == "own" and "wonder" in first["quote"].lower()
+    q = org.state.questions[ep.question_id]
+    assert q.visits[-1].support == 0  # the draft confirmed nothing
+    assert all("draft" not in e.source_title for e in q.support)
+    assert "your draft says so (your claim, not evidence)" in (org.home / "diary.md").read_text(encoding="utf-8")
+    assert "the person's own draft claims" in llm.prompts["SETTLE"]
+
+
+def test_the_map_sets_the_drafts_claims_against_the_other_texts(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM(stance="DEFEND"))
+    org.feed(DRAFT, "My article (draft)", own=True)
+    org.heartbeat()
+    text = render_research_map(org)
+    assert "## Your draft's claims it met, and what the other texts say" in text
+    assert "philosophy begins in wonder" in text.lower()
+
+
+def test_what_a_person_shares_in_philosophy_mode_is_still_evidence(config):
+    org = CuriosityOrganism(config, llm=ScriptedLLM())
+    path = org.feed("Wonder is the feeling of a philosopher, said my teacher.", "A note")
+    assert "own:" not in path.read_text(encoding="utf-8")
+
+
+# -- titles and words from real PDFs -------------------------------------------------------------
+
+
+def test_letter_spaced_words_are_rejoined_only_when_the_text_knows_the_word():
+    from curiosity_ai.organism.papers import clean_pdf_text
+
+    text = ("A reconstruction method of electron density distribution i n the equatorial region\n"
+            "Resonant and non-resonant whistlers-particle interactio n in the radiation belts\n"
+            "Wave interactions in the plasma. The frequency of f is fixed.")
+    cleaned = clean_pdf_text(text)
+    assert "distribution in the" in cleaned and "particle interaction in" in cleaned
+    assert "frequency of f is" in cleaned  # "off" never occurs: nothing to join
+
+
+@pytest.mark.parametrize("body, title", [
+    ("manuscript submitted to Journal of Geophysical Research - Space Physics\nThe source regions of whistlers\n"
+     "D. I. Golden1, M. Spasojevic1", "The source regions of whistlers"),
+    ("manuscript accepted by JGR-Space Physics\nVLF transmitters as tools for monitoring the\nplasmasphere\n"
+     "Alain Bhattacharya1, Pierre-Louis Blelly2", "VLF transmitters as tools for monitoring the plasmasphere"),
+    ("NUMERICAL SIMULATIONS OF THE EFFECT OF LOCALISED IONOSPHERIC\nPERTURBATIONS ON SUBIONOSPHERIC VLF PROPAGATION\n"
+     "DESANKA SULIC1, ALEKSANDRA NINA1 AND VLADIMIR A. SRECKOVIC1",
+     "NUMERICAL SIMULATIONS OF THE EFFECT OF LOCALISED IONOSPHERIC PERTURBATIONS ON SUBIONOSPHERIC VLF PROPAGATION"),
+    ("SCIENCE ADVANCES | RESEARCH ARTICLE\nSpecularly reflected whistler: A low-latitude channel to couple lightning\n"
+     "energy to the magnetosphere\nShen Bao, Lv Wang", "Specularly reflected whistler: A low-latitude channel to couple lightning energy to the magnetosphere"),
+])
+def test_a_title_is_found_past_banners_and_across_a_line_break(body, title):
+    from curiosity_ai.organism.papers import _first_title_line
+
+    assert _first_title_line(body) == title
+
+
+def test_the_opening_skips_the_authors_addresses():
+    text = ("A reconstruction method of electron density distribution\nV. V. Shastun 1, O. V. Agapitov 2\n"
+            "2Space Science Laboratory, the University of California 7 Gauss Way, Berkeley, CA 94720, USA\n"
+            "vitalii.shastun@cnrs-orleans.fr\n"
+            "A method for the estimation of electron density from the ratio of the wave magnetic and electric field "
+            "amplitude of whistler waves is developed.")
+    assert opening(text).startswith("A method for the estimation of electron density")
+
+
+def test_each_claim_of_the_draft_is_set_against_what_other_texts_said():
+    from types import SimpleNamespace
+
+    from curiosity_ai.organism.research_map import _draft_section
+    from curiosity_ai.organism.state import Episode
+    from curiosity_ai.organism.textutil import token_set
+
+    claim = "The plasmapause organizes the pathways through which lightning-generated waves reach the inner magnetosphere."
+    episodes = [
+        Episode(heartbeat=3, question_id="Q2", question="q", prior_confidence=0.3, confidence=0.3,
+                sources=["[S1] Human observer, My article (draft) (the person's own work: their claims, not evidence)"],
+                checks=[{"expectation": 1, "status": "own", "source": "S1", "quote": claim}]),
+        Episode(heartbeat=7, question_id="Q2", question="q", prior_confidence=0.3, confidence=0.4,
+                sources=["[S2] Golden, The source regions of whistlers", "[S3] A. Author, Another paper"],
+                checks=[{"expectation": 1, "status": "confirmed", "source": "S2",
+                         "quote": "the plasmapause organizes whistler pathways into the inner magnetosphere"},
+                        {"expectation": 2, "status": "confirmed", "source": "S3", "quote": "soup needs salt and a bay leaf"}]),
+    ]
+    organism = SimpleNamespace(topic_words=token_set("lightning whistlers inner magnetosphere"))
+    text = "\n".join(_draft_section(episodes, organism))
+    assert "Golden, The source regions of whistlers says something similar" in text
+    assert "soup" not in text
+    lone = "\n".join(_draft_section(episodes[:1], organism))
+    assert "no other text it read says this yet" in lone
+
+
+
+def test_the_draft_section_shows_whole_claims_once_and_only_close_matches():
+    """In the one test the section listed "] play a central role in ..." and the same sentence three times, and said
+    a paper on ULF waves "says something similar" to a claim about whistler pathways (both name the plasmapause)."""
+    from types import SimpleNamespace
+
+    from curiosity_ai.organism.research_map import _draft_section
+    from curiosity_ai.organism.state import Episode
+    from curiosity_ai.organism.textutil import token_set
+
+    whole = "The plasmapause thus organizes the pathways through which lightning-generated waves illuminate the inner magnetosphere"
+    own = "[S1] Human observer, My article (draft) (the person's own work: their claims, not evidence)"
+
+    def episode(hb, *checks, sources=(own,)):
+        return Episode(heartbeat=hb, question_id="Q7", question="q", prior_confidence=0.3, confidence=0.3,
+                       sources=list(sources), checks=list(checks))
+
+    episodes = [
+        episode(2, {"expectation": 1, "status": "own", "source": "S1", "quote": whole}),
+        episode(5, {"expectation": 1, "status": "own", "source": "S1", "quote": whole + ","}),
+        episode(6, {"expectation": 1, "status": "own", "source": "S1", "quote": "The plasmapause thus organizes the pathways through"}),
+        episode(16, {"expectation": 2, "status": "own", "source": "S1", "quote": "] play a central role in selecting these propagation pathways."}),
+        episode(33, {"expectation": 1, "status": "own", "source": "S1", "quote": "The pathways through which this energy ["}),
+        episode(28, {"expectation": 1, "status": "confirmed", "source": "S2",
+                     "quote": "Plasmasphere and its boundary, plasmapause, are special regions for ULF waves to interact with charged particles."},
+                sources=["[S2] A. Rubtsov, Plasmasphere Control of ULF Wave Distribution"]),
+    ]
+    organism = SimpleNamespace(topic_words=token_set("lightning whistlers inner magnetosphere electromagnetic energy"))
+    text = "\n".join(_draft_section(episodes, organism))
+    claims = [line for line in text.splitlines() if line.startswith('- "')]
+    assert claims == [f'- "{whole}" (heartbeat 2, Q7)']
+    assert "Rubtsov" not in text and "no other text it read says this yet" in text
+
+
+@pytest.mark.parametrize("author, junk", [
+    ("iitm", True), ("user", True), ("Microsoft Office User", True),
+    ("Enrico Camporeale", False), ("D. L. Carpenter", False), ("V. V. Shastun, O. V. Agapitov", False),
+])
+def test_who_made_the_file_is_not_who_wrote_the_paper(author, junk):
+    from curiosity_ai.organism.papers import _junk_author
+
+    assert _junk_author(author) is junk
+
