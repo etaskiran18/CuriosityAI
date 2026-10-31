@@ -18,7 +18,10 @@
 #   --exam           the exam before and after (adds up to an hour to each job)
 #   --traps          also the four trap tests for each model, in jobs of their own
 #   --name NAME      the batch folder in runs/valar (default: date and time); an existing batch gets more runs
+#   --at-once K      run at most K of these jobs at the same time (each waits for one before it); default: no limit
 #   --dry-run        print the sbatch commands and submit nothing
+#
+# VALAR runs at most 8 jobs per user at once and takes at most 50: your other jobs count too.
 set -euo pipefail
 # shellcheck source=common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
@@ -33,6 +36,7 @@ ablate=""
 exam=0
 traps=0
 name=$(date +%Y%m%d-%H%M)
+at_once=0
 dry=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -46,6 +50,7 @@ while [ $# -gt 0 ]; do
         --exam) exam=1; shift ;;
         --traps) traps=1; shift ;;
         --name) name=$2; shift 2 ;;
+        --at-once) at_once=$2; shift 2 ;;
         --dry-run) dry=1; shift ;;
         -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1 (see --help)" >&2; exit 1 ;;
@@ -66,6 +71,21 @@ if [ "$dry" = 0 ] && { [ ! -x "$PY" ] || [ ! -x "$OLLAMA" ]; }; then
 fi
 
 BATCH=$RESULTS/$name
+per_model=$((1 + traps))
+new_jobs=0
+for model in $models; do new_jobs=$((new_jobs + per_model)); done
+if [ "$dry" = 0 ]; then
+    # Your other jobs share the limits: at most 8 running and 50 taken at once.
+    running=$(squeue -u "$USER" -h -t RUNNING 2>/dev/null | wc -l)
+    queued=$(squeue -u "$USER" -h -r 2>/dev/null | wc -l)
+    echo "Your jobs on VALAR now: $running running, $queued in all; $new_jobs to submit (limits: 8 running, 50 in all)."
+    if [ $((queued + new_jobs)) -gt 50 ]; then
+        echo "That would pass the limit of 50 jobs: submit fewer models or wait for the queue to drain." >&2
+        exit 1
+    fi
+fi
+lanes=()
+submitted=0
 hhmm() {  # minutes -> HH:MM:00
     printf '%02d:%02d:00' $(($1 / 60)) $(($1 % 60))
 }
@@ -80,20 +100,33 @@ submit() {  # label mode time-limit-minutes model
         echo "  $label: skipped, it was submitted before ($dir exists; delete it to submit again)"
         return
     fi
-    local cmd=(sbatch --parsable --export=ALL --job-name "cur-$label" --partition "$PARTITION" --account "$ACCOUNT"
-               --qos "$QOS" --gres "$gres" --nodes 1 --ntasks 1 --cpus-per-task "$CPUS" --mem "$mem"
-               --time "$(hhmm "$limit")" --output "$dir/slurm-%j.out")
+    local cmd=(sbatch --parsable --export=ALL --job-name "cur-$label" --partition "$PARTITION" --gres "$gres"
+               --nodes 1 --ntasks 1 --cpus-per-task "$CPUS" --mem "$mem" --time "$(hhmm "$limit")"
+               --output "$dir/slurm-%j.out")
+    if [ -n "$ACCOUNT" ]; then cmd+=(--account "$ACCOUNT"); fi
+    if [ -n "$QOS" ]; then cmd+=(--qos "$QOS"); fi
     if [ -n "$MAIL_USER" ]; then cmd+=(--mail-user "$MAIL_USER" --mail-type "END,FAIL"); fi
+    # With --at-once K the jobs form K lanes; each waits for the one before it in its lane.
+    local lane=0 after=""
+    if [ "$at_once" -gt 0 ]; then
+        lane=$((submitted % at_once))
+        after=${lanes[lane]:-}
+        if [ -n "$after" ]; then cmd+=(--dependency "afterany:$after"); fi
+    fi
     cmd+=("$VALAR_DIR/curiosity_job.sh")
+    submitted=$((submitted + 1))
     if [ "$dry" = 1 ]; then
         echo "  $label: MODEL=$model JUDGE=$judge MODE=$mode ${cmd[*]}"
+        if [ "$at_once" -gt 0 ]; then lanes[lane]="<the job before it in lane $((lane + 1))>"; fi
         return
     fi
     mkdir -p "$dir"
     local id
     id=$(REPO=$REPO MODEL=$model JUDGE=$judge MINUTES=$minutes HEARTBEATS=$heartbeats SEED=$seed ARCH=$arch \
          ABLATE=$ablate EXAM=$exam MODE=$mode LABEL=$label RUN_DIR=$dir "${cmd[@]}")
-    echo "  $label: job $id ($gpus GPU, at most $(hhmm "$limit"))"
+    id=${id%%;*}
+    if [ "$at_once" -gt 0 ]; then lanes[lane]=$id; fi
+    echo "  $label: job $id ($gpus GPU, $mem, at most $(hhmm "$limit")${after:+, after job $after})"
     echo "| $id | $label | $model | $judge | $mode | $gpus | $(hhmm "$limit") |" >>"$BATCH/jobs.md"
 }
 

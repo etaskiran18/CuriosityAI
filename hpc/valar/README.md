@@ -24,77 +24,78 @@ shorter, and what needs many heartbeats (curiosities fading, waiting, returns to
 the same amount of inquiry per model, give every model the same number of heartbeats with a generous time
 limit: `--heartbeats 30 --minutes 240` stops at whichever comes first.
 
-## Steps
+## Steps, from your computer
 
-**0. The code on VALAR.** On the login node:
+As the lab works: `ssh valar` must work without a password (the lab's VALAR guide sets it up). Every command
+below runs on your computer, in this folder; the scripts send the work to VALAR.
 
-```bash
-git clone https://github.com/etaskiran18/CuriosityAI.git
-cd CuriosityAI
-git checkout claude/upbeat-lovelace-bsqcwj
-```
+**0. This folder.** `git clone https://github.com/etaskiran18/CuriosityAI.git` (or `git pull` in it).
 
-(If GitHub asks for a password, copy the folder from your computer instead: `scp -r CuriosityAI <user>@<VALAR login>:~/`.)
-
-**1. Your settings.** The defaults are partition, account and qos `ai`, as in VALAR's example job script.
-If yours differ, or to choose the GPU type, write them into `hpc/valar/my_settings.sh` (git does not
-track it), for example:
+**1. Look first.**
 
 ```bash
-ACCOUNT=ai
-GPU_TYPE=l40s                                # as SLURM names it; see below
-STORE=/scratch/users/$USER/curiosity-hpc     # if your home has little space; default ~/curiosity-hpc
+ssh valar hostname
+ssh valar 'sinfo -o "%20N %60G"'     # the GPU types, as SLURM names them
+ssh valar 'squeue -u $USER'          # your other jobs share the limits: 8 running, 50 submitted
+ssh valar 'df -h /scratch'
 ```
 
-`sinfo -o "%20N %60G"` (or `valar-nodes`) lists the GPU types. Choose a 48 GB card (A40, L40S or
-RTX A6000): it holds every model of the ladder with the judge, the 72B model on two of them. A 16 GB
-Tesla T4 is too small. Without `GPU_TYPE` a job takes any GPU.
-
-**2. Setup (once).** On the login node:
+**2. Your settings.** By default jobs go to partition `ai` with your own account and qos, as the lab's jobs
+do, and everything lives in `/scratch/<user>`. Choose the GPU type in `hpc/valar/my_settings.sh` (git does
+not track it; the sync copies it to VALAR), for example:
 
 ```bash
-bash hpc/valar/setup.sh
+GPU_TYPE=l40s     # as sinfo shows it
 ```
 
-It makes a Python environment, downloads Ollama (about 1.5 GB) and the models of the ladder (about 87 GB)
-into `STORE`. Only downloads happen on the login node; no model runs there. Compute nodes may have no
-internet, so every model a job uses must be downloaded here. More models later:
-`bash hpc/valar/setup.sh models qwen2.5:72b`.
+A 48 GB card (A40, L40S or RTX A6000) holds every model of the ladder with the judge, the 72B model on two of
+them. A 16 GB Tesla T4 is too small. Without `GPU_TYPE` a job takes any GPU.
 
-**3. A pilot of 10 minutes.**
+**3. The code to VALAR.** `bash hpc/valar/sync_to_valar.sh` copies it to `/scratch/<user>/CuriosityAI` (not
+your lives in `memory/`) and checks that both sides have the same code. Run it again after every change.
+
+**4. Setup (once).** `bash hpc/valar/remote.sh --detach setup.sh` makes a Python environment and downloads
+Ollama (about 1.5 GB) and the models of the ladder (about 87 GB) into `/scratch/<user>/curiosity-hpc`. It goes
+on if you disconnect; `ssh valar tail -f LOG` follows the log it names. Only downloads happen on the login
+node; no model runs there. Compute nodes may have no internet, so every model a job uses is downloaded here.
+More models later: `bash hpc/valar/remote.sh --detach setup.sh models qwen2.5:72b`.
+
+**5. A pilot of 10 minutes.**
 
 ```bash
-bash hpc/valar/submit_ladder.sh --models qwen2.5:7b --minutes 10 --name pilot
+bash hpc/valar/remote.sh submit_ladder.sh --models qwen2.5:7b --minutes 10 --name pilot
 ```
 
-When it has finished, `runs/valar/pilot/qwen2.5-7b/run_info.txt` says on which GPU it ran, whether all
-layers of both models were on the GPU, and how many heartbeats it lived; the diary is in
-`runs/valar/pilot/qwen2.5-7b/life/diary.md`.
+When it has finished, `runs/valar/pilot/qwen2.5-7b/run_info.txt` on VALAR says on which GPU it ran, whether
+all layers of both models were on the GPU, and how many heartbeats it lived.
 
-**4. The ladder.**
+**6. The ladder.**
 
 ```bash
-bash hpc/valar/submit_ladder.sh
+bash hpc/valar/remote.sh submit_ladder.sh --at-once 3
 ```
 
-Six jobs, one per model; they run side by side when GPUs are free. `--dry-run` shows the `sbatch`
-commands without submitting.
+Six jobs, one per model, at most three at a time so that your other work keeps its slots. `--dry-run` shows
+the `sbatch` commands without submitting. `ssh valar 'squeue -u $USER'` shows them; a job's log is
+`runs/valar/<batch>/<run>/slurm-<job>.out` on VALAR.
 
-**5. Watching.** `squeue -u $USER` lists the jobs; a job's log is
-`runs/valar/<batch>/<run>/slurm-<job>.out` (`tail -f` follows it).
-
-**6. Collecting.** When all have finished:
+**7. Collect and bring home.**
 
 ```bash
-bash hpc/valar/collect.sh
+bash hpc/valar/remote.sh collect.sh BATCH
+bash hpc/valar/fetch_from_valar.sh BATCH
 ```
 
-It writes `runs/valar/<batch>/share/` and `runs/valar/<batch>/<batch>-share.tar.gz`: per model the
-diary, the research map, the report, the curiosity records and the judge sheet; a table comparing the
-sessions (`comparison.md`); and a `README.md` saying what is where and what to look for. Copy the archive
-to your computer with `scp` and send it on.
+`runs/valar/BATCH/BATCH-share/` then holds, per model, the diary, the research map, the report, the curiosity
+records and the judge sheet; a table comparing the sessions (`comparison.md`); and a `README.md` saying what
+is where and what to look for.
+
+On the login node itself the same scripts run without `remote.sh`: `bash hpc/valar/setup.sh`,
+`bash hpc/valar/submit_ladder.sh ...`, `bash hpc/valar/collect.sh`.
 
 ## More runs in the same batch
+
+From your computer, put `bash hpc/valar/remote.sh` in front of each, as above.
 
 ```bash
 bash hpc/valar/submit_ladder.sh --name BATCH --models qwen2.5:32b --arch drive         # v9 as a control
@@ -177,6 +178,9 @@ VALAR's own pages: [the cluster](https://help.ku.edu.tr/ithelp/valar-hpc-dc2-clu
 | file | what it does |
 |---|---|
 | `common.sh` | default settings and shared helpers; your `my_settings.sh` overrides the settings |
+| `sync_to_valar.sh` | on your computer: copies the code to VALAR and checks it |
+| `remote.sh` | on your computer: runs one of these scripts on VALAR (`--detach` for long work) |
+| `fetch_from_valar.sh` | on your computer: brings a batch's archive home and unpacks it |
 | `setup.sh` | the Python environment, Ollama and the models (login node, once) |
 | `submit_ladder.sh` | submits one job per model |
 | `curiosity_job.sh` | the job: its own Ollama server, the models loaded and checked, one life |

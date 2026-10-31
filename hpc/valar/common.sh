@@ -14,19 +14,25 @@ if [ -f "$VALAR_DIR/my_settings.sh" ]; then
     source "$VALAR_DIR/my_settings.sh"
 fi
 
-# Where jobs run. VALAR's example job script uses partition, account and qos "ai"; `sinfo` shows yours.
+# Where jobs run: partition "ai", as in the lab's jobs. Account and qos are named only if set here; otherwise
+# your defaults apply (`sacctmgr show assoc user=$USER` lists them).
 PARTITION=${PARTITION:-ai}
-ACCOUNT=${ACCOUNT:-ai}
-QOS=${QOS:-ai}
+ACCOUNT=${ACCOUNT:-}
+QOS=${QOS:-}
 # The GPU type as SLURM names it (sinfo -o "%20N %60G" lists them). Empty means any GPU, which can be a
 # 16 GB Tesla T4: too small for the larger models. A 48 GB card (A40, L40S, RTX A6000) fits them all.
 GPU_TYPE=${GPU_TYPE:-}
 GPU_MEM_GB=${GPU_MEM_GB:-48}    # memory of one such GPU; decides how many GPUs a job asks for
 CPUS=${CPUS:-8}
 MAIL_USER=${MAIL_USER:-}        # an address for "job ended" mails; empty means no mails
-# The Python environment, Ollama and the models: about 90 GB with every model of the ladder.
-STORE=${STORE:-$HOME/curiosity-hpc}
+# The Python environment, Ollama and the models: about 90 GB with every model of the ladder. On VALAR they go
+# to scratch (/scratch/<username>), where code, inputs and outputs belong; scratch has no backup.
+if [ -z "${STORE:-}" ]; then
+    if [ -d "/scratch/${USER:-}" ]; then STORE=/scratch/$USER/curiosity-hpc; else STORE=$HOME/curiosity-hpc; fi
+fi
+VALAR_PYTHON=/opt/ohpc/pub/compiler/anaconda3/2025.06/bin/python   # the cluster's own Python, if it is there
 PYTHON_MODULE=${PYTHON_MODULE:-anaconda3}   # loaded only when no Python 3.10 or newer is found
+MAX_MEM_GB=${MAX_MEM_GB:-480}   # the most computer memory one job asks for
 # Where runs are written: diaries, reports and logs.
 RESULTS=${RESULTS:-$REPO/runs/valar}
 
@@ -123,5 +129,5 @@ gpus_needed() {
 
 # Memory of the computer (GB) a job asks for: room to read the model files, at least 64 GB.
 ram_needed() {
-    awk -v need="$(memory_needed "$1" "$2")" 'BEGIN { n = int(need * 1.25 + 0.999); if (n < 64) n = 64; if (n > 480) n = 480; print n }'
+    awk -v need="$(memory_needed "$1" "$2")" -v most="$MAX_MEM_GB" 'BEGIN { n = int(need * 1.25 + 0.999); if (n < 64) n = 64; if (n > most) n = most; print n }'
 }

@@ -20,7 +20,7 @@ setup_python() {
         echo "Python environment: $VENV (already there)"
     else
         local base="" candidate
-        for candidate in "${PYTHON:-}" python3.13 python3.12 python3.11 python3.10 python3; do
+        for candidate in "${PYTHON:-}" "$VALAR_PYTHON" python3.13 python3.12 python3.11 python3.10 python3; do
             if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1 && python_ok "$candidate"; then
                 base=$(command -v "$candidate")
                 break
