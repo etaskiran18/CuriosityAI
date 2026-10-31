@@ -49,10 +49,17 @@ Each part can be switched off for experiments: `--ablate decision,satisfaction,a
 * `--heartbeats N --minutes M` stops at whichever comes first (before, the minutes alone counted): the same
   amount of inquiry for models of every size, with a time limit for the slow ones.
 * The end of a cluster job (SIGTERM) is treated like Ctrl+C: the mind is saved and the report written.
+* After the lab's VALAR guide: jobs go to partition `ai` with the user's own account and qos, everything lives
+  in `/scratch/<user>`, the cluster's Anaconda Python builds the environment, and `submit_ladder.sh` looks at the
+  queue first (8 running and 50 submitted jobs per user, other work included) and can run `--at-once K` jobs.
+* From the user's own computer, where `ssh valar` works: `sync_to_valar.sh` copies the code (not the lives in
+  `memory/`) and checks it on both sides, `remote.sh` runs a script on VALAR (arguments travel as a script, so no
+  quoting surprises; `--detach` for long work), `fetch_from_valar.sh` brings a batch's archive home.
+* `CLAUDE.md`: the lab's cluster rules and the plan of the first complete test, for a Claude session on that computer.
 
 ## Also
 
 * Question statuses `deferred`, `satisfied`, `faded` and `dropped`; a curiosity's history of status changes.
 * Old minds load unchanged: every new field has a default.
-* Tests: 401 (from 311), with new files for records, decisions, transience, exposure, traps, evaluation and
+* Tests: 405 (from 311), with new files for records, decisions, transience, exposure, traps, evaluation and
   the cluster scripts.
