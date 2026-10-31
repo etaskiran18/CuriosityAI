@@ -31,6 +31,22 @@ Everything is in `hpc/valar/` (its `README.md` explains each step). From this co
 
 Later: the Llama 3.1 ladder up to 405B ("Beyond 72B" in `hpc/valar/README.md`).
 
+## Notes from the session that wrote the scripts
+
+- `ssh valar` works from this computer without a password (it answers `login01.kuvalar.ku.edu.tr`).
+- The GPU type names on VALAR are not known yet: step 1 shows them (the GRES column of `sinfo`). Put a 48 GB card
+  into `hpc/valar/my_settings.sh` as `GPU_TYPE`; without it a job may land on a 16 GB Tesla T4.
+- Before living, every job checks that both models sit wholly on the GPU (`N of N layers on the GPU` in
+  `run_info.txt`); if not, it stops with exit code 3 instead of crawling on the CPU for an hour. The `GPU use` line
+  of `live.py --check` can show less than 100% even when every layer is on the GPU (the token table stays in the
+  computer's memory): trust the layers line.
+- qwen2.5:1.5b could not name a single unknown (it copied the instruction back); qwen2.5:3b named some. That is
+  why the ladder starts at 3B, and the diaries say when a model cannot name what it does not know.
+- The downloads run on the login node (file transfer, which the guide allows). If the login node stops a long
+  process, run `bash hpc/valar/remote.sh --detach setup.sh models ...` again: it skips what is already there.
+- Emre said the jobs may be queued and run. Still show him the exact job list (`--dry-run`) before the first
+  submission and wait for his OK, and never touch his other jobs.
+
 ## Cluster rules (from the lab's VALAR guide)
 
 - Cluster: `ssh valar` (Slurm, partition ai, always `--mem`, at most 8 running jobs and 50 submitted per user;
